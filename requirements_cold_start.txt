@@ -1,0 +1,17 @@
+# Base requirements (from original RATD)
+torch
+pandas
+numpy
+tqdm
+pyyaml
+matplotlib
+wget
+linear_attention_transformer
+
+# Cold-start additions
+faiss-gpu-cu12          # FAISS nearest-neighbour index (CUDA 12 build)
+scikit-learn            # StandardScaler for per-channel normalisation
+Pillow                  # Image loading
+transformers            # HuggingFace CLIP (CLIPModel + CLIPProcessor)
+                        # usage: from transformers import CLIPModel, CLIPProcessor
+                        # model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")

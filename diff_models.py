@@ -53,18 +53,26 @@ class ReferenceModulatedCrossAttention(nn.Module):
         context_dim = None,
         dropout = 0.,
         talking_heads = False,
-        prenorm = False
+        prenorm = False,
+        attr_dim = None,
+        attr_proj_dim = 32,
     ):
         """Initialize the reference-modulated attention layer.
 
         Args:
-            dim: Feature dimension of the latent state.
+            dim: Feature dimension of the latent state (must equal L, the
+                sequence length of the input tensor).
             heads: Number of attention heads.
             dim_head: Per-head hidden size.
-            context_dim: Dimension of the conditioning context.
+            context_dim: Dimension of the conditioning context (= ref_size*k).
             dropout: Dropout probability applied to attention weights.
             talking_heads: Whether to use learned head mixing.
             prenorm: Whether to normalize inputs before projection.
+            attr_dim: Dimensionality of the product attribute embedding used
+                for path-(b) attribute conditioning.  ``None`` disables path (b)
+                and preserves original RATD behaviour.
+            attr_proj_dim: Hidden size the attribute embedding is projected to
+                before being concatenated into keys and values.
 
         Returns:
             None: The constructor initializes the attention module in-place.
@@ -83,12 +91,21 @@ class ReferenceModulatedCrossAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.context_dropout = nn.Dropout(dropout)
 
-        # The current implementation projects the denoising state into queries
-        # and constructs keys / values from a mix of current state, side
-        # information, and retrieved references.
-        self.y_to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.cond_to_k = nn.Linear(2*dim+context_dim, inner_dim, bias = False)
-        self.ref_to_v = nn.Linear(dim+context_dim, inner_dim, bias = False)
+        # Path (b): project product attribute embedding into key/value space.
+        # When attr_dim is None the module behaves identically to the original.
+        self.attr_dim = attr_dim
+        if attr_dim is not None:
+            self.attr_proj = nn.Linear(attr_dim, attr_proj_dim)
+            attr_extra = attr_proj_dim
+        else:
+            attr_extra = 0
+
+        # The denoising state is projected into queries; keys and values are
+        # built from a mix of current state, side information, retrieved
+        # references, and (when enabled) product attribute embeddings.
+        self.y_to_q    = nn.Linear(dim, inner_dim, bias=False)
+        self.cond_to_k = nn.Linear(2*dim + context_dim + attr_extra, inner_dim, bias=False)
+        self.ref_to_v  = nn.Linear(dim  + context_dim + attr_extra, inner_dim, bias=False)
 
         self.to_out = nn.Linear(inner_dim, dim)
         self.context_to_out = nn.Linear(inner_dim, context_dim)
@@ -101,6 +118,7 @@ class ReferenceModulatedCrossAttention(nn.Module):
         x,
         cond_info,
         reference,
+        attr_emb=None,
         return_attn = False,
     ):
         """Apply reference-aware attention to the latent state.
@@ -109,6 +127,9 @@ class ReferenceModulatedCrossAttention(nn.Module):
             x: Latent state tensor with shape ``(B, C, K, L)``.
             cond_info: Conditioning tensor aligned with ``x``.
             reference: Retrieved reference tensor with shape ``(B, K, R)``.
+            attr_emb: Optional product attribute embedding ``(B, attr_dim)``.
+                When provided and ``self.attr_dim`` is not ``None``, the
+                projected attributes are appended to keys and values (path b).
             return_attn: Whether to also return raw attention weights.
 
         Returns:
@@ -126,8 +147,29 @@ class ReferenceModulatedCrossAttention(nn.Module):
         reference = repeat(reference, 'b n c -> (b f) n c', f=C)# (B*C, K, L)
         q_y = self.y_to_q(x.reshape(B*C, K, L))# (B*C,K,ND)
 
-        cond=self.cond_to_k(torch.cat((x.reshape(B*C, K, L), cond_info.reshape(B*C, K, L), reference), dim=-1))# (B*C,K,ND)
-        ref=self.ref_to_v(torch.cat((x.reshape(B*C, K, L), reference), dim=-1))# (B*C,K,ND)
+        # Path (b): when attr_dim is enabled, build the projected attribute
+        # tensor that is appended to keys and values.
+        # If attr_emb is None at runtime we zero-fill so the linear layer still
+        # receives its full expected input width without crashing.
+        if self.attr_dim is not None:
+            if attr_emb is not None:
+                attr = self.attr_proj(attr_emb)                          # (B, attr_proj_dim)
+            else:
+                # Zero-fill: same effect as "no attribute signal" while keeping
+                # the network's input dimensionality consistent.
+                attr_proj_dim = self.attr_proj.out_features
+                attr = torch.zeros(B, attr_proj_dim, device=x.device, dtype=x.dtype)
+            attr = attr.unsqueeze(1).unsqueeze(1).expand(B, C, K, -1)   # (B,C,K,attr_proj_dim)
+            attr = attr.reshape(B * C, K, -1)                           # (B*C,K,attr_proj_dim)
+            cond=self.cond_to_k(torch.cat(
+                (x.reshape(B*C, K, L), cond_info.reshape(B*C, K, L), reference, attr),
+                dim=-1))                                                 # (B*C,K,ND)
+            ref=self.ref_to_v(torch.cat(
+                (x.reshape(B*C, K, L), reference, attr),
+                dim=-1))                                                 # (B*C,K,ND)
+        else:
+            cond=self.cond_to_k(torch.cat((x.reshape(B*C, K, L), cond_info.reshape(B*C, K, L), reference), dim=-1))# (B*C,K,ND)
+            ref=self.ref_to_v(torch.cat((x.reshape(B*C, K, L), reference), dim=-1))# (B*C,K,ND)
         q_y, cond, ref = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), (q_y, cond, ref))# (B*C, N, K, D)
 
         # Similarity is computed between the reference-conditioned keys and
@@ -330,6 +372,9 @@ class diff_RATD(nn.Module):
         self.output_projection2 = Conv1d_with_init(self.channels, 1, 1)
         nn.init.zeros_(self.output_projection2.weight)
 
+        # Optional path-(b) attribute conditioning dimension (None = disabled).
+        attr_dim = config.get("attr_dim", None)
+
         # Each residual block receives the same side information and optional
         # references, then contributes one skip tensor to the final prediction.
         self.residual_layers = nn.ModuleList(
@@ -342,12 +387,13 @@ class diff_RATD(nn.Module):
                     diffusion_embedding_dim=config["diffusion_embedding_dim"],
                     nheads=config["nheads"],
                     is_linear=config["is_linear"],
+                    attr_dim=attr_dim,
                 )
                 for _ in range(config["layers"])
             ]
         )
 
-    def forward(self, x, cond_info, diffusion_step, reference=None):
+    def forward(self, x, cond_info, diffusion_step, reference=None, attr_emb=None):
         """Run the denoiser for one diffusion step.
 
         Args:
@@ -355,6 +401,8 @@ class diff_RATD(nn.Module):
             cond_info: Side-information tensor with shape ``(B, C, K, L)``.
             diffusion_step: Current diffusion step indices.
             reference: Optional retrieval tensor.
+            attr_emb: Optional product attribute embedding ``(B, attr_dim)``
+                forwarded to every residual block for path-(b) conditioning.
 
         Returns:
             torch.Tensor: Predicted noise tensor with shape ``(B, K, L)``.
@@ -372,7 +420,7 @@ class diff_RATD(nn.Module):
 
         skip = []
         for layer in self.residual_layers:
-            x, skip_connection = layer(x, cond_info, diffusion_emb, reference)
+            x, skip_connection = layer(x, cond_info, diffusion_emb, reference, attr_emb=attr_emb)
             skip.append(skip_connection)
 
         # Aggregate all skip paths before the final projection back to one
@@ -402,7 +450,7 @@ class ResidualBlock(nn.Module):
         None: The constructor initializes the residual block in-place.
     """
 
-    def __init__(self, side_dim, ref_size, h_size, channels, diffusion_embedding_dim, nheads, is_linear=False):
+    def __init__(self, side_dim, ref_size, h_size, channels, diffusion_embedding_dim, nheads, is_linear=False, attr_dim=None):
         """Initialize one residual denoising block.
 
         Args:
@@ -413,6 +461,9 @@ class ResidualBlock(nn.Module):
             diffusion_embedding_dim: Size of the timestep embedding.
             nheads: Number of attention heads in the transformers.
             is_linear: Whether to use linear attention instead of PyTorch attention.
+            attr_dim: Dimensionality of the product attribute embedding for
+                path-(b) conditioning inside RMA.  ``None`` keeps original
+                RATD behaviour.
 
         Returns:
             None: The constructor initializes the residual block in-place.
@@ -433,7 +484,7 @@ class ResidualBlock(nn.Module):
                 dropout=0,
                 bias=False,
             )
-        self.RMA=ReferenceModulatedCrossAttention(dim=ref_size+h_size,context_dim=ref_size*3)
+        self.RMA=ReferenceModulatedCrossAttention(dim=ref_size+h_size, context_dim=ref_size*3, attr_dim=attr_dim)
         self.line= nn.Linear(
                 ref_size*3, ref_size+h_size
             )
@@ -496,7 +547,7 @@ class ResidualBlock(nn.Module):
         y = y.reshape(B, L, channel, K).permute(0, 2, 3, 1).reshape(B, channel, K * L)
         return y
     
-    def forward(self, x, cond_info, diffusion_emb, reference):
+    def forward(self, x, cond_info, diffusion_emb, reference, attr_emb=None):
         """Apply one residual denoising update.
 
         Args:
@@ -504,6 +555,8 @@ class ResidualBlock(nn.Module):
             cond_info: Side-information tensor with shape ``(B, S, K, L)``.
             diffusion_emb: Timestep embedding for the current diffusion step.
             reference: Optional retrieval tensor with retrieved futures.
+            attr_emb: Optional product attribute embedding ``(B, attr_dim)``
+                forwarded to ``RMA`` for path-(b) conditioning.
 
         Returns:
             tuple: Updated residual state and skip tensor.
@@ -525,7 +578,7 @@ class ResidualBlock(nn.Module):
         if reference!=None and self.fusion_type==1:
             # Fusion type 1 replaces the projected side information with the
             # output of the custom reference-aware attention module.
-            cond_info = self.RMA(y.reshape(B, channel, K, L),cond_info.reshape(B, channel, K, L),reference)
+            cond_info = self.RMA(y.reshape(B, channel, K, L), cond_info.reshape(B, channel, K, L), reference, attr_emb=attr_emb)
             #reference = self.line(reference)
             #reference = torch.sigmoid(reference)# (B,K,L)
             #reference=reference.reshape(B, 1, K, L).permute(0,1,3,2)

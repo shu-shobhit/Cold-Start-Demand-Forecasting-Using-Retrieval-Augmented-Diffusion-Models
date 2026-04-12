@@ -5,6 +5,7 @@ forecast metric computation, and the batch-wise evaluation pipeline used by
 the forecasting entrypoint.
 """
 
+import os
 import pickle
 
 import matplotlib.pyplot as plt
@@ -17,91 +18,73 @@ def train(
     model,
     config,
     train_loader,
-    valid_loader=None,
-    valid_epoch_interval=20,
     foldername="",
+    save_every=10,
 ):
-    """Train the forecasting model and save checkpoints.
+    """Train the forecasting model and save periodic checkpoints.
+
+    Saves ``model_epochN.pth`` every ``save_every`` epochs and ``model.pth``
+    at the end.  No validation loop is run during training — evaluate any
+    saved checkpoint post-hoc with ``exe_fashion.py --modelfolder``.
 
     Args:
-        model: RATD forecasting model to optimize.
-        config: Training configuration dictionary.
-        train_loader: Dataloader for training batches.
-        valid_loader: Optional dataloader for validation batches.
-        valid_epoch_interval: Validation frequency in epochs.
-        foldername: Directory used for checkpoint output.
+        model:        RATD forecasting model to optimize.
+        config:       Training configuration dict (keys: lr, epochs,
+                      itr_per_epoch).
+        train_loader: DataLoader for training batches.
+        foldername:   Directory for checkpoint output.  Empty string disables
+                      saving.
+        save_every:   Save a checkpoint every this many epochs (default 10).
 
     Returns:
-        None: The function trains the model and writes checkpoints.
+        None: The function trains the model in-place.
     """
 
     optimizer = Adam(model.parameters(), lr=config["lr"], weight_decay=1e-6)
-    if foldername != "":
-        output_path = foldername + "/model.pth"
 
+    # MultiStepLR: drop LR by 10× at 75 % and 90 % of total epochs.
     p1 = int(0.75 * config["epochs"])
     p2 = int(0.9 * config["epochs"])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, milestones=[p1, p2], gamma=0.1
     )
 
-    best_valid_loss = 1e10
     for epoch_no in range(config["epochs"]):
-        avg_loss = 0
+        avg_loss = 0.0
         model.train()
-        with tqdm(train_loader, mininterval=5.0, maxinterval=50.0) as it:
+        with tqdm(train_loader, mininterval=5.0, maxinterval=50.0,
+                  desc=f"Epoch {epoch_no}") as it:
             for batch_no, train_batch in enumerate(it, start=1):
                 optimizer.zero_grad()
-
-                # The model wrapper returns the scalar diffusion noise-prediction
-                # loss for the current batch.
                 loss = model(train_batch)
                 loss.backward()
                 avg_loss += loss.item()
                 optimizer.step()
                 it.set_postfix(
                     ordered_dict={
-                        "avg_epoch_loss": avg_loss / batch_no,
-                        "epoch": epoch_no,
+                        "avg_loss": avg_loss / batch_no,
+                        "epoch":    epoch_no,
                     },
                     refresh=False,
                 )
-                # Some experiments cap the number of iterations per epoch, so
-                # the loop exits early once the configured limit is reached.
                 if batch_no >= config["itr_per_epoch"]:
                     break
 
-            lr_scheduler.step()
-        if valid_loader is not None and (epoch_no + 1) % valid_epoch_interval == 0:
-            #model.eval()
-            #avg_loss_valid = 0
-            #with torch.no_grad():
-                #with tqdm(valid_loader, mininterval=5.0, maxinterval=50.0) as it:
-                    #for batch_no, valid_batch in enumerate(it, start=1):
-                        #loss = model(valid_batch, is_train=0)
-                        #avg_loss_valid += loss.item()
-                        #it.set_postfix(
-                            #ordered_dict={
-                                #"valid_avg_epoch_loss": avg_loss_valid / batch_no,
-                                #"epoch": epoch_no,
-                            #},
-                            #refresh=False,
-                        #)
-            #if best_valid_loss > avg_loss_valid:
-                #if foldername != "":
-            # The current research snapshot saves the latest model each
-            # validation interval even though the best-loss logic is commented.
-            torch.save(model.state_dict(), output_path)
-                #best_valid_loss = avg_loss_valid
-                #print(
-                    #"\n best loss is updated to ",
-                    #avg_loss_valid / batch_no,
-                    #"at",
-                    #epoch_no,
-                #)
+        lr_scheduler.step()
+        print(f"Epoch {epoch_no:4d} | avg_loss={avg_loss / batch_no:.6f} "
+              f"| lr={lr_scheduler.get_last_lr()[0]:.2e}")
 
-    if foldername != "":
-        torch.save(model.state_dict(), output_path)
+        # Periodic intermediate checkpoint
+        if foldername and save_every > 0 and (epoch_no + 1) % save_every == 0:
+            ckpt = os.path.join(foldername, f"model_epoch{epoch_no + 1}.pth")
+            torch.save(model.state_dict(), ckpt)
+            print(f"  -> Checkpoint saved: {ckpt}")
+
+    # Final model (always saved)
+    if foldername:
+        final_path = os.path.join(foldername, "model.pth")
+        torch.save(model.state_dict(), final_path)
+        print(f"Training complete.  Final model: {final_path}")
 
 
 def quantile_loss(target, forecast, q: float, eval_points) -> float:
@@ -192,6 +175,31 @@ def calc_quantile_CRPS_sum(target, forecast, eval_points, mean_scaler, scaler):
         q_loss = quantile_loss(target, q_pred, quantiles[i], eval_points)
         CRPS += q_loss / denom
     return CRPS.item() / len(quantiles)
+
+def calc_wape(target, forecast_median, eval_points, scaler=1, mean_scaler=0):
+    """Compute Weighted Absolute Percentage Error (WAPE) from a median forecast.
+
+    WAPE = sum(|pred - actual|) / sum(|actual|).  De-normalises using
+    ``scaler`` and ``mean_scaler`` before computing, so the result is in the
+    original unit space.
+
+    Args:
+        target: Ground-truth tensor ``(B, L, K)`` or ``(B, K, L)``.
+        forecast_median: Point-forecast tensor, same shape as ``target``.
+        eval_points: Binary mask matching ``target`` shape.
+        scaler: Multiplicative de-normalization factor.
+        mean_scaler: Additive de-normalization offset.
+
+    Returns:
+        float: WAPE as a fraction (multiply by 100 for percentage).
+    """
+
+    target_denorm   = target * scaler + mean_scaler
+    forecast_denorm = forecast_median * scaler + mean_scaler
+    numerator   = torch.abs((forecast_denorm - target_denorm) * eval_points).sum()
+    denominator = torch.abs(target_denorm * eval_points).sum()
+    return (numerator / denominator).item() if denominator > 0 else float("nan")
+
 
 def evaluate(model, test_loader, nsample=100, scaler=1, mean_scaler=0, foldername=""):
     """Evaluate the model on the test split using sampled forecasts.
