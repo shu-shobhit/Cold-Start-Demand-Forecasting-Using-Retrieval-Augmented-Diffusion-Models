@@ -21,6 +21,7 @@ Usage examples
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import pickle
@@ -77,11 +78,62 @@ def parse_args():
     p.add_argument("--num_workers",   type=int, default=4)
     p.add_argument("--save_every",    type=int, default=10,
                    help="Save an intermediate checkpoint every N epochs "
-                        "(0 = only save the final model)")
+                        "(0 = only save the final model and best model)")
+    p.add_argument("--val_interval",  type=int, default=10,
+                   help="Run validation every N epochs during training "
+                        "(uses test set for best-model selection)")
+    p.add_argument("--resume",        type=str, default="",
+                   help="Resume training: path to a checkpoint_*.pth file, "
+                        "or a run folder (auto-selects checkpoint_latest.pth "
+                        "or the highest-epoch checkpoint found there)")
     p.add_argument("--sweep",         action="store_true",
                    help="Evaluate at n_obs ∈ {0,1,2,3,4} and print "
                         "a comparison table")
     return p.parse_args()
+
+
+def _resolve_resume_checkpoint(path: str) -> str:
+    """Return the path to a full resumable checkpoint given a file or folder.
+
+    Preference order when ``path`` is a directory:
+      1. ``checkpoint_latest.pth``  — most convenient single target
+      2. Highest-epoch ``checkpoint_epochN.pth`` found in the folder
+
+    Args:
+        path: Path to a ``.pth`` file or a run folder.
+
+    Returns:
+        str: Resolved path to a checkpoint file.
+
+    Raises:
+        FileNotFoundError: If no suitable checkpoint can be found.
+    """
+    if os.path.isfile(path):
+        return path
+
+    if os.path.isdir(path):
+        latest = os.path.join(path, "checkpoint_latest.pth")
+        if os.path.exists(latest):
+            return latest
+        # Fall back to highest epoch checkpoint
+        pattern = os.path.join(path, "checkpoint_epoch*.pth")
+        candidates = glob.glob(pattern)
+        if candidates:
+            def _epoch_num(p):
+                try:
+                    return int(
+                        os.path.basename(p)
+                        .replace("checkpoint_epoch", "")
+                        .replace(".pth", "")
+                    )
+                except ValueError:
+                    return -1
+            return max(candidates, key=_epoch_num)
+
+    raise FileNotFoundError(
+        f"No resumable checkpoint found at: {path}\n"
+        "Make sure the path points to a checkpoint_*.pth file or a run folder."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -345,13 +397,24 @@ def main():
 
     print(json.dumps(config, indent=4))
 
+    # ---- Resolve resume checkpoint (if requested) ------------------------
+    resume_ckpt = None
+    if args.resume:
+        resume_ckpt = _resolve_resume_checkpoint(args.resume)
+        print(f"Resuming from checkpoint: {resume_ckpt}")
+
     # ---- Output folder ---------------------------------------------------
-    timestamp  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_tag    = f"n{args.n_obs_eval}" if not args.sweep else "sweep"
-    foldername = os.path.join(
-        repo_root, "save", f"fashion_visuelle2_{run_tag}_{timestamp}"
-    )
-    os.makedirs(foldername, exist_ok=True)
+    if resume_ckpt is not None:
+        # Continue saving into the *same* folder as the checkpoint
+        foldername = os.path.dirname(resume_ckpt)
+        print(f"Continuing run folder  : {foldername}")
+    else:
+        timestamp  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_tag    = f"n{args.n_obs_eval}" if not args.sweep else "sweep"
+        foldername = os.path.join(
+            repo_root, "save", f"fashion_visuelle2_{run_tag}_{timestamp}"
+        )
+        os.makedirs(foldername, exist_ok=True)
     with open(os.path.join(foldername, "config.json"), "w") as f:
         json.dump({**config, "cli": vars(args)}, f, indent=4)
 
@@ -390,14 +453,20 @@ def main():
             model,
             config["train"],
             train_loader,
+            valid_loader=test_loader,           # use test set for best-model selection
+            valid_epoch_interval=args.val_interval,
             foldername=foldername,
             save_every=args.save_every,
+            resume_checkpoint=resume_ckpt,      # None = fresh run
         )
     else:
-        # Load requested checkpoint; fall back to model.pth in the folder
-        ckpt_path = os.path.join(args.modelfolder, "model.pth")
-        if not os.path.isabs(ckpt_path):
-            ckpt_path = os.path.join(repo_root, ckpt_path)
+        # Prefer model_best.pth (lowest val loss) over model.pth (last epoch)
+        best_ckpt = os.path.join(args.modelfolder, "model_best.pth")
+        last_ckpt = os.path.join(args.modelfolder, "model.pth")
+        if not os.path.isabs(best_ckpt):
+            best_ckpt = os.path.join(repo_root, best_ckpt)
+            last_ckpt = os.path.join(repo_root, last_ckpt)
+        ckpt_path = best_ckpt if os.path.exists(best_ckpt) else last_ckpt
         print(f"Loading checkpoint: {ckpt_path}")
         model.load_state_dict(torch.load(ckpt_path, map_location=args.device))
 

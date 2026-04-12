@@ -14,27 +14,72 @@ import torch
 from torch.optim import Adam
 from tqdm import tqdm
 
+def _save_full_checkpoint(path, model, optimizer, lr_scheduler, epoch, best_valid_loss):
+    """Save a resumable training checkpoint (model + optimiser + scheduler state).
+
+    The file produced here is a dict with all state needed to resume training
+    exactly.  It is separate from ``model_best.pth`` / ``model.pth``, which
+    contain only ``model.state_dict()`` for lightweight evaluation loading.
+
+    Args:
+        path:             Destination file path.
+        model:            Model being trained.
+        optimizer:        Adam optimiser.
+        lr_scheduler:     MultiStepLR scheduler.
+        epoch:            The epoch that just completed (0-based).
+        best_valid_loss:  Best validation loss seen so far.
+    """
+    torch.save(
+        {
+            "epoch":            epoch,
+            "model_state":      model.state_dict(),
+            "optimizer_state":  optimizer.state_dict(),
+            "scheduler_state":  lr_scheduler.state_dict(),
+            "best_valid_loss":  best_valid_loss,
+        },
+        path,
+    )
+
+
 def train(
     model,
     config,
     train_loader,
+    valid_loader=None,
+    valid_epoch_interval=10,
     foldername="",
     save_every=10,
+    resume_checkpoint=None,
 ):
-    """Train the forecasting model and save periodic checkpoints.
+    """Train the forecasting model, validate periodically, and save checkpoints.
 
-    Saves ``model_epochN.pth`` every ``save_every`` epochs and ``model.pth``
-    at the end.  No validation loop is run during training — evaluate any
-    saved checkpoint post-hoc with ``exe_fashion.py --modelfolder``.
+    Checkpoint files written to ``foldername``:
+      - ``checkpoint_epochN.pth`` — full resumable checkpoint every ``save_every``
+        epochs (model + optimiser + scheduler + epoch counter).
+      - ``checkpoint_latest.pth`` — always overwritten with the most recent full
+        checkpoint (convenient target for ``--resume``).
+      - ``model_best.pth`` — model weights only, saved whenever val loss improves.
+      - ``model.pth``      — model weights only, saved at the end of training.
+
+    Validation uses ``is_train=1`` (random diffusion timestep per batch) so it
+    runs at the same speed as one training epoch.
 
     Args:
-        model:        RATD forecasting model to optimize.
-        config:       Training configuration dict (keys: lr, epochs,
-                      itr_per_epoch).
-        train_loader: DataLoader for training batches.
-        foldername:   Directory for checkpoint output.  Empty string disables
-                      saving.
-        save_every:   Save a checkpoint every this many epochs (default 10).
+        model:                RATD forecasting model to optimize.
+        config:               Training configuration dict (keys: lr, epochs,
+                              itr_per_epoch).
+        train_loader:         DataLoader for training batches.
+        valid_loader:         Optional DataLoader for validation / best-model
+                              selection (e.g. the test loader).
+        valid_epoch_interval: Run validation every this many epochs (default 10).
+        foldername:           Directory for checkpoint output.  Empty string
+                              disables saving.
+        save_every:           Save a full resumable checkpoint every this many
+                              epochs (0 = only save at end and on improvement).
+        resume_checkpoint:    Path to a ``checkpoint_*.pth`` file produced by a
+                              previous run.  When supplied, model / optimiser /
+                              scheduler states are restored and training resumes
+                              from the next epoch.
 
     Returns:
         None: The function trains the model in-place.
@@ -49,7 +94,24 @@ def train(
         optimizer, milestones=[p1, p2], gamma=0.1
     )
 
-    for epoch_no in range(config["epochs"]):
+    start_epoch     = 0
+    best_valid_loss = float("inf")
+
+    # ---- Resume from checkpoint -----------------------------------------
+    if resume_checkpoint is not None:
+        device = next(model.parameters()).device
+        ckpt   = torch.load(resume_checkpoint, map_location=device)
+        model.load_state_dict(ckpt["model_state"])
+        optimizer.load_state_dict(ckpt["optimizer_state"])
+        lr_scheduler.load_state_dict(ckpt["scheduler_state"])
+        start_epoch     = ckpt["epoch"] + 1          # resume from the *next* epoch
+        best_valid_loss = ckpt.get("best_valid_loss", float("inf"))
+        print(f"Resumed from epoch {ckpt['epoch']}  "
+              f"(best_val={best_valid_loss:.6f}  →  continuing from epoch {start_epoch})")
+
+    # ---- Main training loop ---------------------------------------------
+    for epoch_no in range(start_epoch, config["epochs"]):
+        # ---- Training ------------------------------------------------
         avg_loss = 0.0
         model.train()
         with tqdm(train_loader, mininterval=5.0, maxinterval=50.0,
@@ -71,20 +133,57 @@ def train(
                     break
 
         lr_scheduler.step()
-        print(f"Epoch {epoch_no:4d} | avg_loss={avg_loss / batch_no:.6f} "
+        print(f"Epoch {epoch_no:4d} | train_loss={avg_loss / batch_no:.6f} "
               f"| lr={lr_scheduler.get_last_lr()[0]:.2e}")
 
-        # Periodic intermediate checkpoint
+        # ---- Full resumable checkpoint (periodic + latest) ----------
         if foldername and save_every > 0 and (epoch_no + 1) % save_every == 0:
-            ckpt = os.path.join(foldername, f"model_epoch{epoch_no + 1}.pth")
-            torch.save(model.state_dict(), ckpt)
-            print(f"  -> Checkpoint saved: {ckpt}")
+            periodic_path = os.path.join(foldername, f"checkpoint_epoch{epoch_no + 1}.pth")
+            _save_full_checkpoint(periodic_path, model, optimizer, lr_scheduler,
+                                  epoch_no, best_valid_loss)
+            latest_path = os.path.join(foldername, "checkpoint_latest.pth")
+            _save_full_checkpoint(latest_path, model, optimizer, lr_scheduler,
+                                  epoch_no, best_valid_loss)
+            print(f"  -> Checkpoint saved: {periodic_path}")
 
-    # Final model (always saved)
+        # ---- Validation (best-model selection) ----------------------
+        if valid_loader is not None and (epoch_no + 1) % valid_epoch_interval == 0:
+            model.eval()
+            avg_loss_valid = 0.0
+            with torch.no_grad():
+                with tqdm(valid_loader, mininterval=5.0, maxinterval=50.0,
+                          desc="  Val") as vit:
+                    for vbatch_no, valid_batch in enumerate(vit, start=1):
+                        vloss = model(valid_batch, is_train=1)
+                        avg_loss_valid += vloss.item()
+                        vit.set_postfix(
+                            ordered_dict={"val_loss": avg_loss_valid / vbatch_no},
+                            refresh=False,
+                        )
+            model.train()
+            avg_loss_valid /= vbatch_no
+            print(f"  -> val_loss={avg_loss_valid:.6f}")
+
+            if avg_loss_valid < best_valid_loss:
+                best_valid_loss = avg_loss_valid
+                if foldername:
+                    best_path = os.path.join(foldername, "model_best.pth")
+                    torch.save(model.state_dict(), best_path)
+                    print(f"  -> New best model (val_loss={best_valid_loss:.6f}): {best_path}")
+
+    # ---- Final model (always saved) ---------------------------------
     if foldername:
         final_path = os.path.join(foldername, "model.pth")
         torch.save(model.state_dict(), final_path)
-        print(f"Training complete.  Final model: {final_path}")
+        # Also update latest checkpoint so it reflects the finished state
+        latest_path = os.path.join(foldername, "checkpoint_latest.pth")
+        _save_full_checkpoint(latest_path, model, optimizer, lr_scheduler,
+                              config["epochs"] - 1, best_valid_loss)
+        print(f"Training complete.  Final model : {final_path}")
+        if valid_loader is not None:
+            print(f"                    Best model  : "
+                  f"{os.path.join(foldername, 'model_best.pth')}"
+                  f"  (val_loss={best_valid_loss:.6f})")
 
 
 def quantile_loss(target, forecast, q: float, eval_points) -> float:
