@@ -1,0 +1,46 @@
+{
+    "train": {
+        "epochs": 100,
+        "batch_size": 32,
+        "lr": 0.001,
+        "itr_per_epoch": 100000000.0
+    },
+    "diffusion": {
+        "layers": 4,
+        "channels": 64,
+        "nheads": 8,
+        "diffusion_embedding_dim": 128,
+        "beta_start": 0.0001,
+        "beta_end": 0.5,
+        "num_steps": 50,
+        "schedule": "quad",
+        "is_linear": false,
+        "h_size": 0,
+        "ref_size": 12
+    },
+    "model": {
+        "is_unconditional": 0,
+        "timeemb": 128,
+        "featureemb": 16,
+        "target_strategy": "test",
+        "use_reference": true,
+        "attr_emb_dim": 16
+    },
+    "cli": {
+        "config": "config/visuelle2.yaml",
+        "data_root": "/home/shu_sho_bhit/BTP_2",
+        "processed_dir": "/home/shu_sho_bhit/BTP_2/visuelle2_processed",
+        "device": "cuda",
+        "seed": 42,
+        "n_obs_eval": 0,
+        "n_obs_min": 0,
+        "n_obs_max": 4,
+        "nsample": 50,
+        "modelfolder": "",
+        "num_workers": 4,
+        "save_every": 10,
+        "val_interval": 10,
+        "resume": "",
+        "sweep": false
+    }
+}
