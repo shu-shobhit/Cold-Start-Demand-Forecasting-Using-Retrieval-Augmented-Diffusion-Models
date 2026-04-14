@@ -12,8 +12,8 @@
 # ref_size * 3 = 36 = total reference tensor length per sample.
 
 train:
-  epochs: 100
-  batch_size: 32
+  epochs: 200
+  batch_size: 64
   lr: 1.0e-3
   itr_per_epoch: 1.0e+8
 
