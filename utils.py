@@ -188,15 +188,18 @@ def train(
             f"lr=[dim]{lr_scheduler.get_last_lr()[0]:.2e}[/]"
         )
 
-        # ---- Full resumable checkpoint (periodic + latest) ----------
+        # ---- Periodic named checkpoint (checkpoint_epochN.pth) ----------
         if foldername and save_every > 0 and (epoch_no + 1) % save_every == 0:
             periodic_path = os.path.join(foldername, f"checkpoint_epoch{epoch_no + 1}.pth")
             _save_full_checkpoint(periodic_path, model, optimizer, lr_scheduler,
                                   epoch_no, best_valid_loss)
+            console.log(f"  [dim]checkpoint saved:[/] {periodic_path}")
+
+        # ---- Latest checkpoint (every epoch, overwrites previous) ----------
+        if foldername:
             latest_path = os.path.join(foldername, "checkpoint_latest.pth")
             _save_full_checkpoint(latest_path, model, optimizer, lr_scheduler,
                                   epoch_no, best_valid_loss)
-            console.log(f"  [dim]checkpoint saved:[/] {periodic_path}")
 
         # ---- Validation (best-model selection) ----------------------
         if valid_loader is not None and (epoch_no + 1) % valid_epoch_interval == 0:
