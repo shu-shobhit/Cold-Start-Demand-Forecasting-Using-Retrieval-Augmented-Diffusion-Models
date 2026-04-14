@@ -290,10 +290,10 @@ def evaluate_lstm(
     preds_t    = torch.cat(all_preds,    dim=0)
     ev_masks_t = torch.cat(all_ev_masks, dim=0)
 
-    # Point metrics in normalised space
+    # Point metrics in normalised space (matching RATD's reporting)
     diff      = (preds_t - targets_t) * ev_masks_t
-    mse       = float(((diff * scaler_val) ** 2).sum() / ev_masks_t.sum())
-    mae       = float((torch.abs(diff) * scaler_val).sum() / ev_masks_t.sum())
+    mse       = float((diff ** 2).sum() / ev_masks_t.sum())
+    mae       = float(torch.abs(diff).sum() / ev_masks_t.sum())
     rmse      = float(np.sqrt(mse))
 
     # WAPE on sales channel in de-normalised space

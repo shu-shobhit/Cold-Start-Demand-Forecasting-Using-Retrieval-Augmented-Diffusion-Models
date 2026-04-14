@@ -311,9 +311,10 @@ def _compute_metrics(
     # ------------------------------------------------------------------
     # RMSE and MAE  (StandardScaler-normalised space, sales channel)
     # ------------------------------------------------------------------
+    # Point metrics in normalised space (matching RATD's reporting)
     diff = (pred_median - target_sales) * eval_sales
-    mse  = float(((diff * scaler_val) ** 2).sum() / eval_sales.sum())
-    mae  = float((torch.abs(diff) * scaler_val).sum() / eval_sales.sum())
+    mse  = float((diff ** 2).sum() / eval_sales.sum())
+    mae  = float(torch.abs(diff).sum() / eval_sales.sum())
     rmse = float(np.sqrt(mse))
 
     # ------------------------------------------------------------------

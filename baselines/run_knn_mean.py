@@ -142,8 +142,8 @@ def _metrics(
 
     # Point metrics in normalised space (matching RATD's reporting)
     diff  = (pred_t - target_t) * ep_t
-    mse   = float(((diff * scaler_val) ** 2).sum() / ep_t.sum())
-    mae   = float((torch.abs(diff) * scaler_val).sum() / ep_t.sum())
+    mse   = float((diff ** 2).sum() / ep_t.sum())
+    mae   = float(torch.abs(diff).sum() / ep_t.sum())
     rmse  = float(np.sqrt(mse))
 
     # WAPE on sales channel (channel 0) in de-normalised space
