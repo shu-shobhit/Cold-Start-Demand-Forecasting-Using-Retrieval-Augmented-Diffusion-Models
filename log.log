@@ -1,0 +1,366 @@
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ python3 exe_fashion.py --device cuda --seed 42 --save_every 5 --resume /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-A
+ugmented-Diffusion-Models/save/fashion_visuelle2_n0_20260413_234127/checkpoint_latest.pth
+{
+    "train": {
+        "epochs": 100,
+        "batch_size": 32,
+        "lr": 0.001,
+        "itr_per_epoch": 100000000.0
+    },
+    "diffusion": {
+        "layers": 4,
+        "channels": 64,
+        "nheads": 8,
+        "diffusion_embedding_dim": 128,
+        "beta_start": 0.0001,
+        "beta_end": 0.5,
+        "num_steps": 50,
+        "schedule": "quad",
+        "is_linear": false,
+        "h_size": 0,
+        "ref_size": 12
+    },
+    "model": {
+        "is_unconditional": 0,
+        "timeemb": 128,
+        "featureemb": 16,
+        "target_strategy": "test",
+        "use_reference": true
+    }
+}
+Resuming from checkpoint: /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/fashion_visuelle2_n0_20260413_234127/checkpoint_latest.pth
+Continuing run folder  : /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/fashion_visuelle2_n0_20260413_234127
+
+Run folder : /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/fashion_visuelle2_n0_20260413_234127
+Device     : cuda
+
+  [Dataset_Visuelle2 | train] 96166 samples | 5355 unique products
+  [Dataset_Visuelle2 | test] 10684 samples | 5355 unique products
+Sales scaler: scale=0.030833  mean=0.023682
+
+Model parameters: 984,849
+
+/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py:135: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  ckpt   = torch.load(resume_checkpoint, map_location=device)
+[06:13:59] Resumed from epoch 22  (best_val=0.189709)  continuing from epoch 23                                    utils.py:141
+[06:24:20] Epoch   23  train_loss=0.160689  lr=1.00e-03                                                            utils.py:179
+[06:24:44]   val_loss=0.193354                                                                                     utils.py:222
+[06:38:59] Epoch   24  train_loss=0.160139  lr=1.00e-03                                                            utils.py:179
+             checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch25.pth                                                         
+[06:39:22]   val_loss=0.210354                                                                                     utils.py:222
+[06:48:14] Epoch   25  train_loss=0.159346  lr=1.00e-03                                                            utils.py:179
+[06:48:35]   val_loss=0.201467                                                                                     utils.py:222
+[07:04:03] Epoch   26  train_loss=0.159827  lr=1.00e-03                                                            utils.py:179
+[07:04:36]   val_loss=0.196732                                                                                     utils.py:222
+[07:22:29] Epoch   27  train_loss=0.158745  lr=1.00e-03                                                            utils.py:179
+[07:23:04]   val_loss=0.190550                                                                                     utils.py:222
+[07:41:20] Epoch   28  train_loss=0.164267  lr=1.00e-03                                                            utils.py:179
+[07:41:56]   val_loss=0.199219                                                                                     utils.py:222
+[07:59:52] Epoch   29  train_loss=0.159877  lr=1.00e-03                                                            utils.py:179
+[07:59:53]   checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch30.pth                                                         
+[08:00:24]   val_loss=0.191695                                                                                     utils.py:222
+[08:17:52] Epoch   30  train_loss=0.158958  lr=1.00e-03                                                            utils.py:179
+[08:18:24]   val_loss=0.186431                                                                                     utils.py:222
+             New best model (val_loss=0.186431):                                                                   utils.py:229
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/model_best.pth                                                                 
+[08:35:22] Epoch   31  train_loss=0.159823  lr=1.00e-03                                                            utils.py:179
+[08:35:53]   val_loss=0.189526                                                                                     utils.py:222
+[08:52:45] Epoch   32  train_loss=0.161040  lr=1.00e-03                                                            utils.py:179
+[08:53:18]   val_loss=0.188031                                                                                     utils.py:222
+[09:10:53] Epoch   33  train_loss=0.157572  lr=1.00e-03                                                            utils.py:179
+[09:11:27]   val_loss=0.206608                                                                                     utils.py:222
+[09:28:55] Epoch   34  train_loss=0.159347  lr=1.00e-03                                                            utils.py:179
+[09:28:56]   checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch35.pth                                                         
+[09:29:27]   val_loss=0.195572                                                                                     utils.py:222
+[09:47:13] Epoch   35  train_loss=0.159493  lr=1.00e-03                                                            utils.py:179
+[09:47:46]   val_loss=0.219367                                                                                     utils.py:222
+[10:05:41] Epoch   36  train_loss=0.157936  lr=1.00e-03                                                            utils.py:179
+[10:06:16]   val_loss=0.190418                                                                                     utils.py:222
+[10:24:14] Epoch   37  train_loss=0.158219  lr=1.00e-03                                                            utils.py:179
+[10:24:51]   val_loss=0.188578                                                                                     utils.py:222
+[10:43:03] Epoch   38  train_loss=0.157793  lr=1.00e-03                                                            utils.py:179
+[10:43:40]   val_loss=0.185111                                                                                     utils.py:222
+             New best model (val_loss=0.185111):                                                                   utils.py:229
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/model_best.pth                                                                 
+[11:02:35] Epoch   39  train_loss=0.157750  lr=1.00e-03                                                            utils.py:179
+[11:02:36]   checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch40.pth                                                         
+[11:03:13]   val_loss=0.185300                                                                                     utils.py:222
+[11:22:24] Epoch   40  train_loss=0.158906  lr=1.00e-03                                                            utils.py:179
+[11:23:03]   val_loss=0.188345                                                                                     utils.py:222
+[11:38:24] Epoch   41  train_loss=0.157676  lr=1.00e-03                                                            utils.py:179
+[11:38:39]   val_loss=0.186818                                                                                     utils.py:222
+[11:46:06] Epoch   42  train_loss=0.186008  lr=1.00e-03                                                            utils.py:179
+[11:46:20]   val_loss=0.221846                                                                                     utils.py:222
+[11:53:41] Epoch   43  train_loss=0.174707  lr=1.00e-03                                                            utils.py:179
+[11:53:55]   val_loss=0.212916                                                                                     utils.py:222
+[12:01:15] Epoch   44  train_loss=0.170907  lr=1.00e-03                                                            utils.py:179
+[12:01:16]   checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch45.pth                                                         
+[12:01:30]   val_loss=0.210249                                                                                     utils.py:222
+[12:08:55] Epoch   45  train_loss=0.170256  lr=1.00e-03                                                            utils.py:179
+[12:09:09]   val_loss=0.200460                                                                                     utils.py:222
+[12:16:30] Epoch   46  train_loss=0.166896  lr=1.00e-03                                                            utils.py:179
+[12:16:44]   val_loss=0.203149                                                                                     utils.py:222
+[12:24:08] Epoch   47  train_loss=0.166552  lr=1.00e-03                                                            utils.py:179
+[12:24:22]   val_loss=0.207715                                                                                     utils.py:222
+[12:31:50] Epoch   48  train_loss=0.164035  lr=1.00e-03                                                            utils.py:179
+[12:32:04]   val_loss=0.205341                                                                                     utils.py:222
+[12:39:30] Epoch   49  train_loss=0.164855  lr=1.00e-03                                                            utils.py:179
+[12:39:31]   checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch50.pth                                                         
+[12:39:45]   val_loss=0.220738                                                                                     utils.py:222
+[12:47:09] Epoch   50  train_loss=0.163802  lr=1.00e-03                                                            utils.py:179
+[12:47:23]   val_loss=0.203506                                                                                     utils.py:222
+[12:54:48] Epoch   51  train_loss=0.162637  lr=1.00e-03                                                            utils.py:179
+[12:55:02]   val_loss=0.202271                                                                                     utils.py:222
+[13:02:58] Epoch   52  train_loss=0.163105  lr=1.00e-03                                                            utils.py:179
+[13:03:19]   val_loss=0.201633                                                                                     utils.py:222
+[13:14:19] Epoch   53  train_loss=0.163633  lr=1.00e-03                                                            utils.py:179
+[13:14:33]   val_loss=0.195862                                                                                     utils.py:222
+[13:22:07] Epoch   54  train_loss=0.161059  lr=1.00e-03                                                            utils.py:179
+             checkpoint saved:                                                                                     utils.py:193
+           /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/             
+           fashion_visuelle2_n0_20260413_234127/checkpoint_epoch55.pth                                                         
+[13:22:20]   val_loss=0.197138                                                                                     utils.py:222
+[13:28:31] Epoch   55  train_loss=0.161916  lr=1.00e-03                                                            utils.py:179
+[13:28:43]   val_loss=0.200832                                                                                     utils.py:222
+[13:35:17] Epoch   56  train_loss=0.161039  lr=1.00e-03                                                            utils.py:179
+[13:35:29]   val_loss=0.195489                                                                                     utils.py:222
+Traceback (most recent call last):
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 498, in <module>
+    scaler=scaler_val,
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 452, in main
+    
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py", line 166, in train
+    total=train_total,
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/main_model_fashion.py", line 320, in forward
+    return loss_func(
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/main_model_fashion.py", line 220, in calc_loss
+    predicted = self.diffmodel(
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/diff_models.py", line 424, in forward
+    x, skip_connection = layer(x, cond_info, diffusion_emb, reference, attr_emb=attr_emb)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/diff_models.py", line 576, in forward
+    cond_info = self.RMA(y.reshape(B, channel, K, L), cond_info.reshape(B, channel, K, L), reference, attr_emb=attr_emb)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/diff_models.py", line 178, in forward
+    attn = sim.softmax(dim = -1)
+KeyboardInterrupt
+^C^C^C
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ ^C
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ python3 exe_fashion.py --device cuda --seed 42 --save_every 5 --resume save/fashion_visuelle2_n0_20260413_234127/checkpoint_epoch40.pth --lr 3e-4
+LR overridden to 3.00e-04 via --lr flag
+{
+    "train": {
+        "epochs": 100,
+        "batch_size": 32,
+        "lr": 0.0003,
+        "itr_per_epoch": 100000000.0
+    },
+    "diffusion": {
+        "layers": 4,
+        "channels": 64,
+        "nheads": 8,
+        "diffusion_embedding_dim": 128,
+        "beta_start": 0.0001,
+        "beta_end": 0.5,
+        "num_steps": 50,
+        "schedule": "quad",
+        "is_linear": false,
+        "h_size": 0,
+        "ref_size": 12
+    },
+    "model": {
+        "is_unconditional": 0,
+        "timeemb": 128,
+        "featureemb": 16,
+        "target_strategy": "test",
+        "use_reference": true
+    }
+}
+Resuming from checkpoint: save/fashion_visuelle2_n0_20260413_234127/checkpoint_epoch40.pth
+Continuing run folder  : save/fashion_visuelle2_n0_20260413_234127
+
+Run folder : save/fashion_visuelle2_n0_20260413_234127
+Device     : cuda
+
+  [Dataset_Visuelle2 | train] 96166 samples | 5355 unique products
+  [Dataset_Visuelle2 | test] 10684 samples | 5355 unique products
+Sales scaler: scale=0.030833  mean=0.023682
+
+Model parameters: 984,849
+
+/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py:135: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  ckpt   = torch.load(resume_checkpoint, map_location=device)
+[13:41:55] Resumed from epoch 39  (best_val=0.185111)  continuing from epoch 40  lr=3.00e-04                       utils.py:145
+Traceback (most recent call last):
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 506, in <module>
+    main()
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 460, in main
+    train(
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py", line 174, in train
+    avg_loss += loss.item()
+KeyboardInterrupt
+^C^C^C
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ ^C
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ python3 exe_fashion.py --device cuda --seed 42 --save_every 5 --resume save/fashion_visuelle2_n0_20260413_234127/checkpoint_epoch40.pth --lr 5e
+-4
+LR overridden to 5.00e-04 via --lr flag
+{
+    "train": {
+        "epochs": 100,
+        "batch_size": 32,
+        "lr": 0.0005,
+        "itr_per_epoch": 100000000.0
+    },
+    "diffusion": {
+        "layers": 4,
+        "channels": 64,
+        "nheads": 8,
+        "diffusion_embedding_dim": 128,
+        "beta_start": 0.0001,
+        "beta_end": 0.5,
+        "num_steps": 50,
+        "schedule": "quad",
+        "is_linear": false,
+        "h_size": 0,
+        "ref_size": 12
+    },
+    "model": {
+        "is_unconditional": 0,
+        "timeemb": 128,
+        "featureemb": 16,
+        "target_strategy": "test",
+        "use_reference": true
+    }
+}
+Resuming from checkpoint: save/fashion_visuelle2_n0_20260413_234127/checkpoint_epoch40.pth
+Continuing run folder  : save/fashion_visuelle2_n0_20260413_234127
+
+Run folder : save/fashion_visuelle2_n0_20260413_234127
+Device     : cuda
+
+  [Dataset_Visuelle2 | train] 96166 samples | 5355 unique products
+  [Dataset_Visuelle2 | test] 10684 samples | 5355 unique products
+Sales scaler: scale=0.030833  mean=0.023682
+
+Model parameters: 984,849
+
+/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py:135: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  ckpt   = torch.load(resume_checkpoint, map_location=device)
+[13:42:59] Resumed from epoch 39  (best_val=0.185111)  continuing from epoch 40  lr=5.00e-04                       utils.py:145
+[13:51:37] Epoch   40  train_loss=0.149803  lr=5.00e-04                                                            utils.py:185
+[13:51:52]   val_loss=0.182193                                                                                     utils.py:228
+             New best model (val_loss=0.182193): save/fashion_visuelle2_n0_20260413_234127/model_best.pth          utils.py:235
+[13:59:37] Epoch   41  train_loss=0.149160  lr=5.00e-04                                                            utils.py:185
+[13:59:52]   val_loss=0.186918                                                                                     utils.py:228
+[14:07:44] Epoch   42  train_loss=0.148784  lr=5.00e-04                                                            utils.py:185
+[14:07:58]   val_loss=0.187268                                                                                     utils.py:228
+[14:15:36] Epoch   43  train_loss=0.149181  lr=5.00e-04                                                            utils.py:185
+[14:15:49]   val_loss=0.181916                                                                                     utils.py:228
+             New best model (val_loss=0.181916): save/fashion_visuelle2_n0_20260413_234127/model_best.pth          utils.py:235
+[14:22:53] Epoch   44  train_loss=0.148201  lr=5.00e-04                                                            utils.py:185
+             checkpoint saved: save/fashion_visuelle2_n0_20260413_234127/checkpoint_epoch45.pth                    utils.py:199
+[14:23:09]   val_loss=0.176149                                                                                     utils.py:228
+             New best model (val_loss=0.176149): save/fashion_visuelle2_n0_20260413_234127/model_best.pth          utils.py:235
+[14:30:37] Epoch   45  train_loss=0.149864  lr=5.00e-04                                                            utils.py:185
+[14:30:50]   val_loss=0.181689                                                                                     utils.py:228
+Traceback (most recent call last):
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 506, in <module>
+    main()
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 460, in main
+    train(
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py", line 172, in train
+    loss.backward()
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/_tensor.py", line 581, in backward
+    torch.autograd.backward(
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/autograd/__init__.py", line 347, in backward
+    _engine_run_backward(
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt
+^C
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ python3 exe_fashion.py --device cuda --seed 42 --save_every 5 
+{
+    "train": {
+        "epochs": 100,
+        "batch_size": 32,
+        "lr": 0.001,
+        "itr_per_epoch": 100000000.0
+    },
+    "diffusion": {
+        "layers": 4,
+        "channels": 64,
+        "nheads": 8,
+        "diffusion_embedding_dim": 128,
+        "beta_start": 0.0001,
+        "beta_end": 0.5,
+        "num_steps": 50,
+        "schedule": "quad",
+        "is_linear": false,
+        "h_size": 0,
+        "ref_size": 12
+    },
+    "model": {
+        "is_unconditional": 0,
+        "timeemb": 128,
+        "featureemb": 16,
+        "target_strategy": "test",
+        "use_reference": true
+    }
+}
+
+Run folder : /home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/save/fashion_visuelle2_n0_20260414_143652
+Device     : cuda
+
+  [Dataset_Visuelle2 | train] 96166 samples | 5355 unique products
+  [Dataset_Visuelle2 | test] 10684 samples | 5355 unique products
+Sales scaler: scale=0.030833  mean=0.023682
+
+Model parameters: 984,849
+
+[14:44:49] Epoch    0  train_loss=0.236075  lr=1.00e-03                                                            utils.py:185
+Traceback (most recent call last):
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 506, in <module>
+    main()
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/exe_fashion.py", line 460, in main
+    train(
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/utils.py", line 218, in train
+    vloss = model(valid_batch, is_train=0)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/shu_sho_bhit/miniconda3/envs/ML/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/main_model_fashion.py", line 320, in forward
+    return loss_func(
+  File "/home/shu_sho_bhit/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/main_model.py", line 215, in calc_loss_valid
+    loss = self.calc_loss(
+KeyboardInterrupt
+^C
+(ML) shu_sho_bhit@Shobhit-PC:~/BTP_2/Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models$ python3 exe_fashion.py --device cuda --seed 42 --save_every 5 

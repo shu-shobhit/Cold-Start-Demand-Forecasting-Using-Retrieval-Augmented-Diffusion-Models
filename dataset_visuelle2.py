@@ -127,8 +127,14 @@ class Dataset_Visuelle2(Dataset):
             else:
                 self.scaler = StandardScaler()
                 self.scaler.fit(train_flat)
-                with open(scaler_path, "wb") as f:
-                    pickle.dump(self.scaler, f)
+                try:
+                    with open(scaler_path, "wb") as f:
+                        pickle.dump(self.scaler, f)
+                except OSError:
+                    # processed_dir is read-only (e.g. Kaggle dataset mount).
+                    # Scaler stays in memory; test split loads it from the
+                    # pre-existing scaler.pkl uploaded with the dataset.
+                    pass
 
         # Apply scaler and store per-row tensors
         df = train_df if self.flag == "train" else test_df

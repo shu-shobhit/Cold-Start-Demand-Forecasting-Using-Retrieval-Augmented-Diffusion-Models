@@ -26,7 +26,7 @@ from rich.progress import (
 console = Console()
 
 
-def _make_progress(**kwargs) -> Progress:
+def make_progress(**kwargs) -> Progress:
     """Return a Rich Progress bar with a consistent column layout.
 
     The bar is transient by default so it disappears after completion,
@@ -160,7 +160,7 @@ def train(
         avg_loss = 0.0
         model.train()
 
-        with _make_progress() as progress:
+        with make_progress() as progress:
             task = progress.add_task(
                 f"Epoch {epoch_no:4d}/{total_epochs - 1}",
                 total=train_total,
@@ -208,14 +208,14 @@ def train(
                 val_total = None
 
             with torch.no_grad():
-                with _make_progress() as progress:
+                with make_progress() as progress:
                     vtask = progress.add_task(
                         f"  Validation epoch {epoch_no:4d}",
                         total=val_total,
                         metrics="val_loss=---",
                     )
                     for vbatch_no, valid_batch in enumerate(valid_loader, start=1):
-                        vloss = model(valid_batch, is_train=1)
+                        vloss = model(valid_batch, is_train=0)
                         avg_loss_valid += vloss.item()
                         progress.update(
                             vtask,
@@ -401,7 +401,7 @@ def evaluate(model, test_loader, nsample=100, scaler=1, mean_scaler=0, foldernam
         except TypeError:
             test_total = None
 
-        with _make_progress() as progress:
+        with make_progress() as progress:
             task = progress.add_task(
                 "Evaluating", total=test_total, metrics="rmse=---  mae=---"
             )

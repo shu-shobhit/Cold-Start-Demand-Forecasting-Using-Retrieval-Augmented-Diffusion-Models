@@ -30,7 +30,6 @@ import numpy as np
 import torch
 import yaml
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from dataset_visuelle2 import Dataset_Visuelle2, get_dataloader
 from main_model_fashion import RATD_Fashion
@@ -38,6 +37,8 @@ from utils import (
     calc_quantile_CRPS,
     calc_quantile_CRPS_sum,
     calc_wape,
+    console,
+    make_progress,
     train,
 )
 
@@ -93,6 +94,13 @@ def parse_args():
     p.add_argument("--sweep",         action="store_true",
                    help="Evaluate at n_obs ∈ {0,1,2,3,4} and print "
                         "a comparison table")
+    p.add_argument("--eval_checkpoint", type=str, default="",
+                   help="Path to any specific .pth file to evaluate "
+                        "(e.g. model_best.pth, checkpoint_epoch40.pth). "
+                        "Skips training entirely. Accepts both weights-only "
+                        "files (model_best / model.pth) and full resumable "
+                        "checkpoints (checkpoint_*.pth). Output files are "
+                        "written to the same directory as the checkpoint.")
     return p.parse_args()
 
 
@@ -187,11 +195,17 @@ def evaluate_fashion(
 
     mse_total = mae_total = evalpts_total = 0.0
 
+    try:
+        total_batches = len(test_loader)
+    except TypeError:
+        total_batches = None
+
+    desc = f"Evaluating{(' ' + tag) if tag else ''}"
+
     with torch.no_grad():
-        desc = f"Evaluating{(' ' + tag) if tag else ''}"
-        with tqdm(test_loader, mininterval=5.0, maxinterval=50.0,
-                  desc=desc) as it:
-            for batch_no, test_batch in enumerate(it, start=1):
+        with make_progress() as progress:
+            task = progress.add_task(desc, total=total_batches, metrics="RMSE=---  MAE=---")
+            for test_batch in test_loader:
                 output = model.evaluate(test_batch, nsample)
                 # output: (samples, observed_data, target_mask, observed_mask, tp)
                 # shapes: (B,nsample,K,L), (B,K,L), (B,K,L), (B,K,L), (B,L)
@@ -218,13 +232,12 @@ def evaluate_fashion(
                 all_obstime.append(obs_time.cpu())
                 all_samples.append(samples.cpu())
 
-                it.set_postfix(
-                    ordered_dict={
-                        "RMSE":  np.sqrt(mse_total / max(evalpts_total, 1)),
-                        "MAE":   mae_total / max(evalpts_total, 1),
-                        "batch": batch_no,
-                    },
-                    refresh=True,
+                running_rmse = np.sqrt(mse_total / max(evalpts_total, 1))
+                running_mae  = mae_total / max(evalpts_total, 1)
+                progress.update(
+                    task,
+                    advance=1,
+                    metrics=f"RMSE={running_rmse:.4f}  MAE={running_mae:.4f}",
                 )
 
     # --- Aggregate across all batches ---
@@ -264,14 +277,12 @@ def evaluate_fashion(
     }
 
     label = f" [{tag}]" if tag else ""
-    print("\n" + "=" * 52)
-    print(f"  Metrics{label}")
-    print(f"  RMSE     : {rmse:.6f}  (normalised scale)")
-    print(f"  MAE      : {mae:.6f}  (normalised scale)")
-    print(f"  WAPE     : {wape * 100:.2f}%")
-    print(f"  CRPS     : {crps:.6f}")
-    print(f"  CRPS_sum : {crps_sum:.6f}")
-    print("=" * 52 + "\n")
+    console.print(f"\n[bold cyan]Metrics{label}[/]")
+    console.print(f"  RMSE     : [yellow]{rmse:.6f}[/]  (normalised scale)")
+    console.print(f"  MAE      : [yellow]{mae:.6f}[/]  (normalised scale)")
+    console.print(f"  WAPE     : [yellow]{wape * 100:.2f}%[/]")
+    console.print(f"  CRPS     : [yellow]{crps:.6f}[/]")
+    console.print(f"  CRPS_sum : [yellow]{crps_sum:.6f}[/]")
 
     if foldername:
         suffix = f"_{tag}" if tag else ""
@@ -357,12 +368,12 @@ def sweep_evaluate(
         sweep_results[n_obs] = metrics
 
     # --- Comparison table ---
-    print("\n" + "=" * 70)
-    print(f"  {'n_obs':<8}{'RMSE':<14}{'MAE':<14}{'WAPE %':<12}{'CRPS':<14}{'CRPS_sum'}")
-    print("-" * 70)
+    console.print(f"\n[bold cyan]Sweep Summary[/]")
+    console.print(f"  {'n_obs':<8}{'RMSE':<14}{'MAE':<14}{'WAPE %':<12}{'CRPS':<14}{'CRPS_sum'}")
+    console.print("-" * 70)
     for n_obs, m in sweep_results.items():
         label = "cold" if n_obs == 0 else f"{n_obs}-shot"
-        print(
+        console.print(
             f"  {label:<8}"
             f"{m['RMSE']:<14.6f}"
             f"{m['MAE']:<14.6f}"
@@ -370,14 +381,13 @@ def sweep_evaluate(
             f"{m['CRPS']:<14.6f}"
             f"{m['CRPS_sum']:.6f}"
         )
-    print("=" * 70 + "\n")
 
     # Save combined sweep JSON
     if foldername:
         sweep_path = os.path.join(foldername, "metrics_sweep.json")
         with open(sweep_path, "w") as f:
             json.dump({str(k): v for k, v in sweep_results.items()}, f, indent=4)
-        print(f"Sweep results saved to: {sweep_path}")
+        console.log(f"Sweep results saved to [bold]{sweep_path}[/]")
 
     return sweep_results
 
@@ -416,6 +426,10 @@ def main():
         # Continue saving into the *same* folder as the checkpoint
         foldername = os.path.dirname(resume_ckpt)
         print(f"Continuing run folder  : {foldername}")
+    elif args.eval_checkpoint:
+        # Write eval outputs next to the checkpoint being evaluated
+        foldername = os.path.dirname(os.path.abspath(args.eval_checkpoint))
+        print(f"Eval output folder     : {foldername}")
     else:
         timestamp  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_tag    = f"n{args.n_obs_eval}" if not args.sweep else "sweep"
@@ -456,7 +470,27 @@ def main():
     print(f"Model parameters: {n_params:,}\n")
 
     # ---- Train or load ---------------------------------------------------
-    if args.modelfolder == "":
+    if args.eval_checkpoint:
+        # Evaluate a specific checkpoint file directly (weights-only or full).
+        ckpt_path = args.eval_checkpoint
+        if not os.path.isabs(ckpt_path):
+            ckpt_path = os.path.join(repo_root, ckpt_path)
+        if not os.path.isfile(ckpt_path):
+            raise FileNotFoundError(f"--eval_checkpoint not found: {ckpt_path}")
+        print(f"Loading checkpoint for evaluation: {ckpt_path}")
+        raw = torch.load(ckpt_path, map_location=args.device, weights_only=False)
+        if isinstance(raw, dict) and "model_state" in raw:
+            # Full resumable checkpoint (checkpoint_epochN.pth / checkpoint_latest.pth)
+            model.load_state_dict(raw["model_state"])
+            epoch      = raw.get("epoch", "?")
+            best_val   = raw.get("best_valid_loss", None)
+            val_str    = f"{best_val:.6f}" if isinstance(best_val, float) else "?"
+            print(f"  Full checkpoint  epoch={epoch}  best_val_loss={val_str}")
+        else:
+            # Weights-only checkpoint (model_best.pth / model.pth)
+            model.load_state_dict(raw)
+            print("  Weights-only checkpoint loaded.")
+    elif args.modelfolder == "":
         train(
             model,
             config["train"],
@@ -476,7 +510,8 @@ def main():
             last_ckpt = os.path.join(repo_root, last_ckpt)
         ckpt_path = best_ckpt if os.path.exists(best_ckpt) else last_ckpt
         print(f"Loading checkpoint: {ckpt_path}")
-        model.load_state_dict(torch.load(ckpt_path, map_location=args.device))
+        model.load_state_dict(torch.load(ckpt_path, map_location=args.device,
+                                         weights_only=False))
 
     # ---- Evaluate --------------------------------------------------------
     if args.sweep:
