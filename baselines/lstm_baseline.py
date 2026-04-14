@@ -365,9 +365,9 @@ def parse_args():
                    help="Root directory for saving checkpoints.")
     p.add_argument("--output",        type=str, default="",
                    help="JSON file for sweep results.")
-    p.add_argument("--epochs",        type=int, default=50)
+    p.add_argument("--epochs",        type=int, default=100)
     p.add_argument("--batch_size",    type=int, default=64)
-    p.add_argument("--lr",            type=float, default=1e-3)
+    p.add_argument("--lr",            type=float, default=5e-4)
     p.add_argument("--hidden_dim",    type=int, default=256,
                    help="LSTM hidden size. Default 256 gives ~796K params (NoAttr) "
                         "or ~894K params (Attr), comparable to RATD_Fashion (~985K).")
