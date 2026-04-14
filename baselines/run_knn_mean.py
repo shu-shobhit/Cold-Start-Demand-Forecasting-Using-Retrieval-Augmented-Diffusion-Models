@@ -215,7 +215,7 @@ def run_global_mean(
     train_np  = train_dataset.data                          # (N_train, 12, 2)
     mean_traj = train_np.mean(axis=0)                       # (12, 2)
 
-    targets_np, eval_mask_np, _ = _build_eval_arrays(test_dataset, n_obs)
+    targets_np, eval_mask_np = _build_eval_arrays(test_dataset, n_obs)
     N = len(targets_np)
 
     # Broadcast mean to all test samples

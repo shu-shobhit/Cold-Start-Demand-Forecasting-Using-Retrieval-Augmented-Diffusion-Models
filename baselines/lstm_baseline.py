@@ -374,6 +374,8 @@ def parse_args():
     p.add_argument("--n_layers",      type=int, default=2)
     p.add_argument("--attr_proj_dim", type=int, default=64,
                    help="Attribute projection dim before LSTM input. Default 64.")
+    p.add_argument("--num_workers",   type=int, default=0,
+                   help="DataLoader worker count (0 = main process, required on Kaggle).")
     return p.parse_args()
 
 
@@ -397,9 +399,9 @@ def _build_datasets(args, n_obs: int):
         n_obs=n_obs,
     )
     train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                              shuffle=True,  num_workers=4, pin_memory=True)
+                              shuffle=True,  num_workers=args.num_workers, pin_memory=True)
     test_loader  = DataLoader(test_ds,  batch_size=args.batch_size,
-                              shuffle=False, num_workers=4, pin_memory=True)
+                              shuffle=False, num_workers=args.num_workers, pin_memory=True)
     return train_ds, test_ds, train_loader, test_loader
 
 
