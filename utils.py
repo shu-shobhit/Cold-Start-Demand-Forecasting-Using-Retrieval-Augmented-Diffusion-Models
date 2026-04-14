@@ -12,7 +12,39 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.optim import Adam
-from tqdm import tqdm
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+
+console = Console()
+
+
+def _make_progress(**kwargs) -> Progress:
+    """Return a Rich Progress bar with a consistent column layout.
+
+    The bar is transient by default so it disappears after completion,
+    leaving only the per-epoch summary line printed via ``console``.
+    """
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]{task.description}"),
+        BarColumn(bar_width=36),
+        MofNCompleteColumn(),
+        TextColumn("[yellow]{task.fields[metrics]}"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+        **kwargs,
+    )
+
 
 def _save_full_checkpoint(path, model, optimizer, lr_scheduler, epoch, best_valid_loss):
     """Save a resumable training checkpoint (model + optimiser + scheduler state).
@@ -87,7 +119,7 @@ def train(
 
     optimizer = Adam(model.parameters(), lr=config["lr"], weight_decay=1e-6)
 
-    # MultiStepLR: drop LR by 10× at 75 % and 90 % of total epochs.
+    # MultiStepLR: drop LR by 10x at 75% and 90% of total epochs.
     p1 = int(0.75 * config["epochs"])
     p2 = int(0.9 * config["epochs"])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -104,37 +136,57 @@ def train(
         model.load_state_dict(ckpt["model_state"])
         optimizer.load_state_dict(ckpt["optimizer_state"])
         lr_scheduler.load_state_dict(ckpt["scheduler_state"])
-        start_epoch     = ckpt["epoch"] + 1          # resume from the *next* epoch
+        start_epoch     = ckpt["epoch"] + 1
         best_valid_loss = ckpt.get("best_valid_loss", float("inf"))
-        print(f"Resumed from epoch {ckpt['epoch']}  "
-              f"(best_val={best_valid_loss:.6f}  →  continuing from epoch {start_epoch})")
+        # Override LR in all param groups (allows --lr flag to take effect even
+        # when resuming, since optimizer.load_state_dict restores the old LR).
+        for pg in optimizer.param_groups:
+            pg["lr"] = config["lr"]
+        console.log(
+            f"[green]Resumed[/] from epoch {ckpt['epoch']}  "
+            f"(best_val={best_valid_loss:.6f})  continuing from epoch {start_epoch}  "
+            f"lr={config['lr']:.2e}"
+        )
+
+    total_epochs   = config["epochs"]
+    itr_per_epoch  = int(config["itr_per_epoch"])
+    try:
+        train_total = min(len(train_loader), itr_per_epoch)
+    except TypeError:
+        train_total = itr_per_epoch
 
     # ---- Main training loop ---------------------------------------------
-    for epoch_no in range(start_epoch, config["epochs"]):
-        # ---- Training ------------------------------------------------
+    for epoch_no in range(start_epoch, total_epochs):
         avg_loss = 0.0
         model.train()
-        with tqdm(train_loader, mininterval=5.0, maxinterval=50.0,
-                  desc=f"Epoch {epoch_no}") as it:
-            for batch_no, train_batch in enumerate(it, start=1):
+
+        with _make_progress() as progress:
+            task = progress.add_task(
+                f"Epoch {epoch_no:4d}/{total_epochs - 1}",
+                total=train_total,
+                metrics="loss=---",
+            )
+            for batch_no, train_batch in enumerate(train_loader, start=1):
                 optimizer.zero_grad()
                 loss = model(train_batch)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 avg_loss += loss.item()
                 optimizer.step()
-                it.set_postfix(
-                    ordered_dict={
-                        "avg_loss": avg_loss / batch_no,
-                        "epoch":    epoch_no,
-                    },
-                    refresh=False,
+                progress.update(
+                    task,
+                    advance=1,
+                    metrics=f"loss={avg_loss / batch_no:.6f}",
                 )
-                if batch_no >= config["itr_per_epoch"]:
+                if batch_no >= itr_per_epoch:
                     break
 
         lr_scheduler.step()
-        print(f"Epoch {epoch_no:4d} | train_loss={avg_loss / batch_no:.6f} "
-              f"| lr={lr_scheduler.get_last_lr()[0]:.2e}")
+        console.log(
+            f"[bold]Epoch {epoch_no:4d}[/]  "
+            f"train_loss=[cyan]{avg_loss / batch_no:.6f}[/]  "
+            f"lr=[dim]{lr_scheduler.get_last_lr()[0]:.2e}[/]"
+        )
 
         # ---- Full resumable checkpoint (periodic + latest) ----------
         if foldername and save_every > 0 and (epoch_no + 1) % save_every == 0:
@@ -144,46 +196,60 @@ def train(
             latest_path = os.path.join(foldername, "checkpoint_latest.pth")
             _save_full_checkpoint(latest_path, model, optimizer, lr_scheduler,
                                   epoch_no, best_valid_loss)
-            print(f"  -> Checkpoint saved: {periodic_path}")
+            console.log(f"  [dim]checkpoint saved:[/] {periodic_path}")
 
         # ---- Validation (best-model selection) ----------------------
         if valid_loader is not None and (epoch_no + 1) % valid_epoch_interval == 0:
             model.eval()
             avg_loss_valid = 0.0
+            try:
+                val_total = len(valid_loader)
+            except TypeError:
+                val_total = None
+
             with torch.no_grad():
-                with tqdm(valid_loader, mininterval=5.0, maxinterval=50.0,
-                          desc="  Val") as vit:
-                    for vbatch_no, valid_batch in enumerate(vit, start=1):
+                with _make_progress() as progress:
+                    vtask = progress.add_task(
+                        f"  Validation epoch {epoch_no:4d}",
+                        total=val_total,
+                        metrics="val_loss=---",
+                    )
+                    for vbatch_no, valid_batch in enumerate(valid_loader, start=1):
                         vloss = model(valid_batch, is_train=1)
                         avg_loss_valid += vloss.item()
-                        vit.set_postfix(
-                            ordered_dict={"val_loss": avg_loss_valid / vbatch_no},
-                            refresh=False,
+                        progress.update(
+                            vtask,
+                            advance=1,
+                            metrics=f"val_loss={avg_loss_valid / vbatch_no:.6f}",
                         )
+
             model.train()
             avg_loss_valid /= vbatch_no
-            print(f"  -> val_loss={avg_loss_valid:.6f}")
+            console.log(f"  val_loss=[magenta]{avg_loss_valid:.6f}[/]")
 
             if avg_loss_valid < best_valid_loss:
                 best_valid_loss = avg_loss_valid
                 if foldername:
                     best_path = os.path.join(foldername, "model_best.pth")
                     torch.save(model.state_dict(), best_path)
-                    print(f"  -> New best model (val_loss={best_valid_loss:.6f}): {best_path}")
+                    console.log(
+                        f"  [green]New best model[/] "
+                        f"(val_loss={best_valid_loss:.6f}): {best_path}"
+                    )
 
     # ---- Final model (always saved) ---------------------------------
     if foldername:
         final_path = os.path.join(foldername, "model.pth")
         torch.save(model.state_dict(), final_path)
-        # Also update latest checkpoint so it reflects the finished state
         latest_path = os.path.join(foldername, "checkpoint_latest.pth")
         _save_full_checkpoint(latest_path, model, optimizer, lr_scheduler,
                               config["epochs"] - 1, best_valid_loss)
-        print(f"Training complete.  Final model : {final_path}")
+        console.log(f"[bold green]Training complete.[/]  Final model: {final_path}")
         if valid_loader is not None:
-            print(f"                    Best model  : "
-                  f"{os.path.join(foldername, 'model_best.pth')}"
-                  f"  (val_loss={best_valid_loss:.6f})")
+            console.log(
+                f"  Best model: {os.path.join(foldername, 'model_best.pth')}  "
+                f"(val_loss={best_valid_loss:.6f})"
+            )
 
 
 def quantile_loss(target, forecast, q: float, eval_points) -> float:
@@ -247,6 +313,7 @@ def calc_quantile_CRPS(target, forecast, eval_points, mean_scaler, scaler):
         CRPS += q_loss / denom
     return CRPS.item() / len(quantiles)
 
+
 def calc_quantile_CRPS_sum(target, forecast, eval_points, mean_scaler, scaler):
     """Compute CRPS after summing forecasts across features.
 
@@ -270,10 +337,11 @@ def calc_quantile_CRPS_sum(target, forecast, eval_points, mean_scaler, scaler):
     denom = calc_denominator(target, eval_points)
     CRPS = 0
     for i in range(len(quantiles)):
-        q_pred = torch.quantile(forecast.sum(-1),quantiles[i],dim=1)
+        q_pred = torch.quantile(forecast.sum(-1), quantiles[i], dim=1)
         q_loss = quantile_loss(target, q_pred, quantiles[i], eval_points)
         CRPS += q_loss / denom
     return CRPS.item() / len(quantiles)
+
 
 def calc_wape(target, forecast_median, eval_points, scaler=1, mean_scaler=0):
     """Compute Weighted Absolute Percentage Error (WAPE) from a median forecast.
@@ -317,107 +385,107 @@ def evaluate(model, test_loader, nsample=100, scaler=1, mean_scaler=0, foldernam
 
     with torch.no_grad():
         model.eval()
-        mse_total = 0
-        mae_total = 0
+        mse_total        = 0
+        mae_total        = 0
         evalpoints_total = 0
-        x=np.linspace(0,100,100)
-        mse_list=np.zeros(100)
-        all_target = []
-        all_observed_point = []
-        all_observed_time = []
-        all_evalpoint = []
+        x        = np.linspace(0, 100, 100)
+        mse_list = np.zeros(100)
+        all_target            = []
+        all_observed_point    = []
+        all_observed_time     = []
+        all_evalpoint         = []
         all_generated_samples = []
-        with tqdm(test_loader, mininterval=5.0, maxinterval=50.0) as it:
-            for batch_no, test_batch in enumerate(it, start=1):
-                # ``model.evaluate`` returns sampled trajectories together with
-                # the exact masks and targets needed for downstream metrics.
+
+        try:
+            test_total = len(test_loader)
+        except TypeError:
+            test_total = None
+
+        with _make_progress() as progress:
+            task = progress.add_task(
+                "Evaluating", total=test_total, metrics="rmse=---  mae=---"
+            )
+            for batch_no, test_batch in enumerate(test_loader, start=1):
                 output = model.evaluate(test_batch, nsample)
 
                 samples, c_target, eval_points, observed_points, observed_time = output
-                samples = samples.permute(0, 1, 3, 2)  # (B,nsample,L,K)
-                c_target = c_target.permute(0, 2, 1)  # (B,L,K)
-                eval_points = eval_points.permute(0, 2, 1)
+                samples         = samples.permute(0, 1, 3, 2)   # (B,nsample,L,K)
+                c_target        = c_target.permute(0, 2, 1)     # (B,L,K)
+                eval_points     = eval_points.permute(0, 2, 1)
                 observed_points = observed_points.permute(0, 2, 1)
 
-                # Point metrics use the per-timestep sample median as a robust
-                # summary of the predictive distribution.
                 samples_median = samples.median(dim=1)
                 all_target.append(c_target)
                 all_evalpoint.append(eval_points)
                 all_observed_point.append(observed_points)
                 all_observed_time.append(observed_time)
                 all_generated_samples.append(samples)
-                
-                
+
                 mse_current = (
                     ((samples_median.values - c_target) * eval_points) ** 2
                 ) * (scaler ** 2)
                 mae_current = (
-                    torch.abs((samples_median.values - c_target) * eval_points) 
+                    torch.abs((samples_median.values - c_target) * eval_points)
                 ) * scaler
-                if batch_no<100:
-                    mse_list[batch_no-1]=mse_current.sum().item()/eval_points.sum().item()
-                mse_total += mse_current.sum().item()
-                mae_total += mae_current.sum().item()
+
+                if batch_no < 100:
+                    mse_list[batch_no - 1] = (
+                        mse_current.sum().item() / eval_points.sum().item()
+                    )
+
+                mse_total        += mse_current.sum().item()
+                mae_total        += mae_current.sum().item()
                 evalpoints_total += eval_points.sum().item()
 
-                it.set_postfix(
-                    ordered_dict={
-                        "rmse_total": np.sqrt(mse_total / evalpoints_total),
-                        "mae_total": mae_total / evalpoints_total,
-                        "batch_no": batch_no,
-                    },
-                    refresh=True,
-                )
-            # The script also stores a simple diagnostic plot for the first 100
-            # batch-level MSE values, matching the original research code.
-            fig,ax = plt.subplots()
-            ax.plot(x,mse_list,color = '#1D2B53')
-            plt.savefig('moti1.pdf')
-            plt.show()
-            with open(
-                foldername + "/generated_outputs_nsample" + str(nsample) + ".pk", "wb"
-            ) as f:
-                # Concatenate all batch outputs so the entire predictive
-                # distribution can be analyzed later without rerunning inference.
-                all_target = torch.cat(all_target, dim=0)
-                all_evalpoint = torch.cat(all_evalpoint, dim=0)
-                all_observed_point = torch.cat(all_observed_point, dim=0)
-                all_observed_time = torch.cat(all_observed_time, dim=0)
-                all_generated_samples = torch.cat(all_generated_samples, dim=0)
-
-                pickle.dump(
-                    [
-                        all_generated_samples,
-                        all_target,
-                        all_evalpoint,
-                        all_observed_point,
-                        all_observed_time,
-                        scaler,
-                        mean_scaler,
-                    ],
-                    f,
+                progress.update(
+                    task,
+                    advance=1,
+                    metrics=(
+                        f"rmse={np.sqrt(mse_total / evalpoints_total):.4f}  "
+                        f"mae={mae_total / evalpoints_total:.4f}"
+                    ),
                 )
 
-            CRPS = calc_quantile_CRPS(
-                all_target, all_generated_samples, all_evalpoint, mean_scaler, scaler
-            )
-            CRPS_sum = calc_quantile_CRPS_sum(
-                all_target, all_generated_samples, all_evalpoint, mean_scaler, scaler
+        # Diagnostic plot of per-batch MSE for the first 100 batches.
+        fig, ax = plt.subplots()
+        ax.plot(x, mse_list, color="#1D2B53")
+        plt.savefig("moti1.pdf")
+        plt.close(fig)
+
+        with open(foldername + "/generated_outputs_nsample" + str(nsample) + ".pk", "wb") as f:
+            all_target            = torch.cat(all_target, dim=0)
+            all_evalpoint         = torch.cat(all_evalpoint, dim=0)
+            all_observed_point    = torch.cat(all_observed_point, dim=0)
+            all_observed_time     = torch.cat(all_observed_time, dim=0)
+            all_generated_samples = torch.cat(all_generated_samples, dim=0)
+
+            pickle.dump(
+                [
+                    all_generated_samples,
+                    all_target,
+                    all_evalpoint,
+                    all_observed_point,
+                    all_observed_time,
+                    scaler,
+                    mean_scaler,
+                ],
+                f,
             )
 
-            with open(
-                foldername + "/result_nsample" + str(nsample) + ".pk", "wb"
-            ) as f:
-                pickle.dump(
-                    [
-                        np.sqrt(mse_total / evalpoints_total),
-                        mae_total / evalpoints_total,
-                        CRPS,
-                    ],
-                    f,
-                )
-                print("RMSE:", np.sqrt(mse_total / evalpoints_total))
-                print("MAE:", mae_total / evalpoints_total)
-                print("CRPS:", CRPS)
-                print("CRPS_sum:", CRPS_sum)
+        CRPS = calc_quantile_CRPS(
+            all_target, all_generated_samples, all_evalpoint, mean_scaler, scaler
+        )
+        CRPS_sum = calc_quantile_CRPS_sum(
+            all_target, all_generated_samples, all_evalpoint, mean_scaler, scaler
+        )
+
+        with open(foldername + "/result_nsample" + str(nsample) + ".pk", "wb") as f:
+            pickle.dump(
+                [np.sqrt(mse_total / evalpoints_total), mae_total / evalpoints_total, CRPS],
+                f,
+            )
+
+        console.log(f"[bold]RMSE:[/]      {np.sqrt(mse_total / evalpoints_total):.6f}")
+        console.log(f"[bold]MAE:[/]       {mae_total / evalpoints_total:.6f}")
+        console.log(f"[bold]CRPS:[/]      {CRPS:.6f}")
+        console.log(f"[bold]CRPS_sum:[/]  {CRPS_sum:.6f}")

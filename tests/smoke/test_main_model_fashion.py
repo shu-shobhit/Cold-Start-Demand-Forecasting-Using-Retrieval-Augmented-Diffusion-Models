@@ -5,8 +5,7 @@ Smoke tests for main_model_fashion.py (RATD_Fashion).
 Tests:
   - Model construction from config: side_dim and attr_dim are correctly
     propagated to the diffmodel after the super().__init__() rebuild.
-  - Path (a) side_info: projected attr channels are appended correctly,
-    side_info shape grows by attr_emb_dim channels.
+  - get_side_info: correct shape (no path-a channels; attrs enter via RMA).
   - Forward pass (is_train=1 and is_train=0): returns scalar loss with
     gradient.
   - evaluate(): returns (samples, c_target, target_mask, obs_mask, obs_tp)
@@ -60,7 +59,6 @@ def _mini_config() -> dict:
             "featureemb": 8,
             "target_strategy": "test",
             "use_reference": True,
-            "attr_emb_dim": 8,
         },
     }
 
@@ -98,14 +96,14 @@ def test_model_construction():
     model  = RATD_Fashion(config, device="cpu")
 
     # emb_total_dim = timeemb(32) + featureemb(8) + 1(cond_mask) = 41
+    # side_dim equals emb_total_dim exactly — no path-a channels added
     expected_emb_total = 32 + 8 + 1
     check(model.emb_total_dim == expected_emb_total,
           f"emb_total_dim {model.emb_total_dim} != {expected_emb_total}")
 
-    expected_side_dim = expected_emb_total + 8   # + attr_emb_dim
-    actual_side_dim   = config["diffusion"]["side_dim"]
-    check(actual_side_dim == expected_side_dim,
-          f"config side_dim {actual_side_dim} != {expected_side_dim}")
+    actual_side_dim = config["diffusion"]["side_dim"]
+    check(actual_side_dim == expected_emb_total,
+          f"config side_dim {actual_side_dim} != {expected_emb_total}")
 
     check(config["diffusion"]["attr_dim"] == 513,
           f"config attr_dim {config['diffusion']['attr_dim']} != 513")
@@ -120,7 +118,7 @@ def test_model_construction():
 
 def test_side_info_shape():
     print(SEP)
-    print("TEST 2: get_side_info — shape with and without product_emb")
+    print("TEST 2: get_side_info — shape equals emb_total_dim (no path-a channels)")
 
     config = _mini_config()
     model  = RATD_Fashion(config, device="cpu")
@@ -128,21 +126,14 @@ def test_side_info_shape():
     B, K, L = 2, 2, 12
     cond_mask   = torch.zeros(B, K, L)
     observed_tp = torch.arange(L).float().unsqueeze(0).expand(B, -1)
-    product_emb = torch.randn(B, 513)
 
-    side_with    = model.get_side_info(observed_tp, cond_mask, product_emb=product_emb)
-    side_without = model.get_side_info(observed_tp, cond_mask, product_emb=None)
+    side_info = model.get_side_info(observed_tp, cond_mask)
 
-    expected_C_without = model.emb_total_dim   # 41
-    expected_C_with    = model.emb_total_dim + model._attr_side_dim   # 41+8=49
+    expected_C = model.emb_total_dim   # timeemb + featureemb + 1 = 41
+    check(side_info.shape == (B, expected_C, K, L),
+          f"side_info shape {side_info.shape} != ({B},{expected_C},{K},{L})")
 
-    check(side_without.shape == (B, expected_C_without, K, L),
-          f"side_without shape {side_without.shape} != ({B},{expected_C_without},{K},{L})")
-    check(side_with.shape == (B, expected_C_with, K, L),
-          f"side_with shape {side_with.shape} != ({B},{expected_C_with},{K},{L})")
-
-    print(f"  without attr: {side_without.shape}")
-    print(f"  with attr:    {side_with.shape}  (+{model._attr_side_dim} channels)  PASS")
+    print(f"  side_info: {side_info.shape}  (C={expected_C} = emb_total_dim)  PASS")
 
 
 def test_process_data():

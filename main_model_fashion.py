@@ -2,12 +2,13 @@
 
 RATD_Fashion: cold-start forecasting wrapper for the Visuelle 2.0 dataset.
 
-Extends ``RATD_base`` with two complementary attribute-conditioning paths:
-  - Path (a)  side-info injection   : 513-dim product embedding → linear → K×L side channels
-  - Path (b)  RMA key/value injection: same embedding concatenated into attention K/V
+Extends ``RATD_base`` with attribute conditioning via a single path:
+  - Path (b)  RMA key/value injection: 513-dim product embedding concatenated
+              into cross-attention K/V inside every RMA layer.
 
-Both paths are always active; the diffmodel is rebuilt after super().__init__() to
-reflect the updated side_dim (path a) and attr_dim (path b) in its config.
+The side_info tensor is unchanged from the base RATD (time + feature embeddings
++ conditioning mask).  The diffmodel is rebuilt after super().__init__() only
+to inject ``attr_dim=513`` for path (b).
 
 Batch contract (from Dataset_Visuelle2):
   observed_data : (B, 12, 2) — L×K, transposed to (B, K, L) here
@@ -29,14 +30,13 @@ from main_model import RATD_base
 class RATD_Fashion(RATD_base):
     """Cold-start forecasting wrapper that extends RATD with attribute conditioning.
 
-    Two complementary paths inject the 513-dim CLIP+price product embedding:
-      - Path (a): projected attributes are appended as extra side_info channels.
-      - Path (b): attributes are fused inside every RMA cross-attention layer.
+    The 513-dim CLIP+price product embedding is injected via cross-attention
+    inside every RMA layer (path b).  The denoiser can selectively attend to
+    relevant parts of the embedding at each layer rather than receiving a
+    globally broadcast projection.
 
     Args:
-        config: Nested configuration dict loaded from a YAML file.  The
-            ``model`` sub-dict may contain ``attr_emb_dim`` (int, default 16)
-            controlling the projection width for path (a).
+        config: Nested configuration dict loaded from a YAML file.
         device: Torch device string, e.g. ``'cuda'`` or ``'cpu'``.
 
     Returns:
@@ -46,39 +46,34 @@ class RATD_Fashion(RATD_base):
     # Dimensionality of the fused product embedding produced by compute_embeddings.py
     ATTR_DIM: int = 513
 
-    def __init__(self, config: dict, device: str):
+    def __init__(self, config: dict, device: str, target_dim: int = 2):
         """Initialize the fashion cold-start forecasting model.
 
         Args:
-            config: Nested configuration dict loaded from a YAML file.
-            device: Torch device string.
+            config:     Nested configuration dict loaded from a YAML file.
+            device:     Torch device string.
+            target_dim: Number of feature channels K.  Default 2 (sales +
+                        discount) for Visuelle 2.  Pass 1 for H&M (sales only).
 
         Returns:
             None: The constructor initializes the model in-place.
         """
 
-        # target_dim=2 for Visuelle 2 (sales + discount channels)
-        super().__init__(2, config, device)
+        super().__init__(target_dim, config, device)
 
         # ------------------------------------------------------------------
-        # Path (a): project CLIP+price attr embedding into side_info channels
-        # ------------------------------------------------------------------
-        self._attr_side_dim: int = config["model"].get("attr_emb_dim", 16)
-        self.attr_proj_side = nn.Linear(self.ATTR_DIM, self._attr_side_dim)
-
-        # ------------------------------------------------------------------
-        # Rebuild diffmodel with correct side_dim (path a) and attr_dim (path b)
+        # Rebuild diffmodel with attr_dim set for path (b) RMA injection.
         #
-        # RATD_base.__init__ already created self.diffmodel with
-        #   side_dim = emb_total_dim
+        # RATD_base.__init__ already created self.diffmodel without attr_dim.
         # We discard it and build a new one that knows about:
-        #   side_dim = emb_total_dim + attr_side_dim   (path a adds channels)
-        #   attr_dim = 513                              (path b inside RMA)
+        #   side_dim = emb_total_dim   (unchanged, no path-a channels)
+        #   attr_dim = from config, default 513 (path b inside RMA cross-attention)
         # ------------------------------------------------------------------
         input_dim   = 1 if self.is_unconditional else 2
+        attr_dim    = config["model"].get("attr_dim", self.ATTR_DIM)
         config_diff = config["diffusion"]
-        config_diff["side_dim"] = self.emb_total_dim + self._attr_side_dim
-        config_diff["attr_dim"] = self.ATTR_DIM
+        config_diff["side_dim"] = self.emb_total_dim
+        config_diff["attr_dim"] = attr_dim
         self.diffmodel = diff_RATD(config_diff, input_dim)
 
         # Per-batch tensors shared between forward, calc_loss, and impute.
@@ -139,34 +134,30 @@ class RATD_Fashion(RATD_base):
         )
 
     # ------------------------------------------------------------------
-    # Side information (path a injection here)
+    # Side information (standard RATD, no path-a modification)
     # ------------------------------------------------------------------
 
     def get_side_info(
         self,
         observed_tp: torch.Tensor,
         cond_mask: torch.Tensor,
-        product_emb: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Build auxiliary conditioning features including attribute embedding.
+        """Build standard RATD auxiliary conditioning features.
 
-        Constructs the standard RATD side_info (time + feature embeddings +
-        conditioning mask) and appends the projected product attribute
-        embedding as additional spatial-temporal channels (path a).
+        Constructs time + feature embeddings and the conditioning mask.
+        Product attributes are not injected here; they enter the model
+        through RMA cross-attention (path b) via ``self._attr_emb``.
 
         Args:
             observed_tp: Time index tensor ``(B, L)``.
             cond_mask: Conditioning mask ``(B, K, L)``.
-            product_emb: Product attribute embedding ``(B, 513)``.  When
-                ``None``, path (a) channels are omitted.
 
         Returns:
-            torch.Tensor: Side information ``(B, side_dim + attr_side_dim, K, L)``.
+            torch.Tensor: Side information ``(B, emb_total_dim [+1], K, L)``.
         """
 
         B, K, L = cond_mask.shape
 
-        # Standard RATD time + feature embeddings
         time_embed = self.time_embedding(observed_tp, self.emb_time_dim)  # (B,L,emb)
         time_embed = time_embed.unsqueeze(2).expand(-1, -1, self.target_dim, -1)
         feature_embed = self.embed_layer(
@@ -181,17 +172,10 @@ class RATD_Fashion(RATD_base):
             side_mask = cond_mask.unsqueeze(1)                       # (B,1,K,L)
             side_info = torch.cat([side_info, side_mask], dim=1)     # (B,emb_total+1,K,L)
 
-        # Path (a): broadcast projected attribute to (B, attr_side_dim, K, L)
-        if product_emb is not None:
-            attr = self.attr_proj_side(product_emb)                  # (B,attr_side_dim)
-            attr = attr.unsqueeze(-1).unsqueeze(-1)                  # (B,attr_side_dim,1,1)
-            attr = attr.expand(B, self._attr_side_dim, K, L)        # (B,attr_side_dim,K,L)
-            side_info = torch.cat([side_info, attr], dim=1)          # (B,side_dim+attr,K,L)
-
         return side_info
 
     # ------------------------------------------------------------------
-    # Loss (override to add path-b attr_emb to diffmodel call)
+    # Loss (override to pass attr_emb to diffmodel for path-b)
     # ------------------------------------------------------------------
 
     def calc_loss(
@@ -204,16 +188,16 @@ class RATD_Fashion(RATD_base):
         reference: torch.Tensor | None,
         set_t: int = -1,
     ) -> torch.Tensor:
-        """DDPM noise-prediction loss with attribute conditioning on both paths.
+        """DDPM noise-prediction loss with path-b attribute conditioning.
 
         Identical to ``RATD_base.calc_loss`` except the diffmodel call receives
-        ``attr_emb=self._attr_emb`` to activate path-(b) RMA injection.
+        ``attr_emb=self._attr_emb`` to activate RMA cross-attention injection.
 
         Args:
             observed_data: Clean target ``(B, K, L)``.
             cond_mask: Conditioning mask.
             observed_mask: Valid-value mask.
-            side_info: Auxiliary features including path-(a) attributes.
+            side_info: Auxiliary features from ``get_side_info``.
             is_train: ``1`` for training, ``0`` for validation.
             reference: Retrieved reference tensor or ``None``.
             set_t: Fixed diffusion timestep for validation (ignored in training).
@@ -233,7 +217,6 @@ class RATD_Fashion(RATD_base):
         noisy_data = (current_alpha ** 0.5) * observed_data + (1.0 - current_alpha) ** 0.5 * noise
         total_input = self.set_input_to_diffmodel(noisy_data, observed_data, cond_mask)
 
-        # Path (b): attr_emb flows via self._attr_emb set in forward/evaluate
         predicted = self.diffmodel(
             total_input, side_info, t,
             reference=reference,
@@ -257,11 +240,7 @@ class RATD_Fashion(RATD_base):
         side_info: torch.Tensor,
         n_samples: int,
     ) -> torch.Tensor:
-        """Draw reverse-diffusion forecast samples with attribute conditioning.
-
-        Identical to ``RATD_base.impute`` except both ``reference`` and
-        ``attr_emb`` (stored as ``self._reference`` / ``self._attr_emb``) are
-        forwarded to the diffmodel at every denoising step.
+        """Draw reverse-diffusion forecast samples with path-b attribute conditioning.
 
         Args:
             observed_data: Clean observations ``(B, K, L)``.
@@ -335,11 +314,8 @@ class RATD_Fashion(RATD_base):
         self._attr_emb  = product_emb
         self._reference = reference
 
-        # Cold-start forecasting: always reveal exactly the first n_obs weeks.
-        # During training n_obs is already baked into gt_mask by the dataset.
         cond_mask = gt_mask
-
-        side_info = self.get_side_info(observed_tp, cond_mask, product_emb=product_emb)
+        side_info = self.get_side_info(observed_tp, cond_mask)
         loss_func = self.calc_loss if is_train == 1 else self.calc_loss_valid
         return loss_func(
             observed_data, cond_mask, observed_mask, side_info, is_train,
@@ -359,11 +335,11 @@ class RATD_Fashion(RATD_base):
 
         Returns:
             tuple:
-              samples      (B, n_samples, K, L) — imputed forecasts
-              observed_data (B, K, L)           — clean ground truth
-              target_mask  (B, K, L)            — held-out forecast positions
-              observed_mask (B, K, L)           — all valid positions
-              observed_tp  (B, L)               — time indices
+              samples       (B, n_samples, K, L) — imputed forecasts
+              observed_data (B, K, L)            — clean ground truth
+              target_mask   (B, K, L)            — held-out forecast positions
+              observed_mask (B, K, L)            — all valid positions
+              observed_tp   (B, L)               — time indices
         """
 
         (
@@ -383,7 +359,7 @@ class RATD_Fashion(RATD_base):
 
             cond_mask   = gt_mask
             target_mask = observed_mask * (1 - gt_mask)   # held-out positions
-            side_info   = self.get_side_info(observed_tp, cond_mask, product_emb=product_emb)
+            side_info   = self.get_side_info(observed_tp, cond_mask)
             samples     = self.impute(observed_data, cond_mask, side_info, n_samples)
 
         return samples, observed_data, target_mask, observed_mask, observed_tp

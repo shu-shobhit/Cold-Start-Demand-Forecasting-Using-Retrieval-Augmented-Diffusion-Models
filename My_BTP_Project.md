@@ -18,6 +18,7 @@ We target two tasks of increasing difficulty:
 - **Task B — Pure Cold-Start (harder, secondary):** Zero sales observed. Only product attributes are available. Requires injecting product attribute embeddings as a new conditioning signal into the diffusion backbone.
 
 Datasets:
+
 - **Visuelle 2.0** (`visuelle2/`) — Primary benchmark. Purpose-built for NPI, shop-level 12-week weekly sales.
 - **H&M** (`hnm_dataset_orig/`) — Secondary validation. Larger scale (105K articles, 31.8M transactions).
 
@@ -27,14 +28,14 @@ Datasets:
 
 > These are flagged explicitly. When a decision is made, update this section and the relevant phase below.
 
-| # | Decision | Options | Status |
-|---|---|---|---|
-| D1 | Feature dimensionality K for Visuelle 2.0 | (a) K=1 sales only, (b) K=2 sales+discount, (c) K=3 sales+discount+restock flag | **Resolved: (b) K=2** |
-| D2 | Product attribute injection into model | (a) Extend `side_info` channels — least disruptive, (b) New cross-attention input alongside references, (c) Encode as synthetic history — hacky | **Resolved: (a) + (b) both active** |
-| D3 | Image encoder for retrieval | (a) CLIP ViT-B/32 — strong semantic alignment, (b) ResNet-50 pretrained on ImageNet, (c) Fine-tuned on fashion images | **Resolved: (a) CLIP ViT-B/32** |
-| D4 | Categorical tag encoding | (a) One-hot, (b) Learned embeddings, (c) CLIP text encoder for zero-shot generalization | **Resolved: (c) CLIP text encoder** |
-| D5 | Number of retrieved references k | Original RATD uses k=3; try k=1,3,5 | **Resolved: k=3 (ablate k=1,5 later)** |
-| D6 | H&M temporal resolution | 2-week periods (6 columns, matches exp.ipynb) or weekly (12 columns, matches Visuelle2) | **Resolved: (a) weekly, 12 columns** |
+| #  | Decision                                  | Options                                                                                                                                             | Status                                     |
+| -- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| D1 | Feature dimensionality K for Visuelle 2.0 | (a) K=1 sales only, (b) K=2 sales+discount, (c) K=3 sales+discount+restock flag                                                                     | **Resolved: (b) K=2**                |
+| D2 | Product attribute injection into model    | (a) Extend `side_info` channels — least disruptive, (b) New cross-attention input alongside references, (c) Encode as synthetic history — hacky | **Resolved: (a) + (b) both active**  |
+| D3 | Image encoder for retrieval               | (a) CLIP ViT-B/32 — strong semantic alignment, (b) ResNet-50 pretrained on ImageNet, (c) Fine-tuned on fashion images                              | **Resolved: (a) CLIP ViT-B/32**      |
+| D4 | Categorical tag encoding                  | (a) One-hot, (b) Learned embeddings, (c) CLIP text encoder for zero-shot generalization                                                             | **Resolved: (c) CLIP text encoder**  |
+| D5 | Number of retrieved references k          | Original RATD uses k=3; try k=1,3,5                                                                                                                 | **Resolved: k=3 (ablate k=1,5 later)**     |
+| D6 | H&M temporal resolution                   | 2-week periods (6 columns, matches exp.ipynb) or weekly (12 columns, matches Visuelle2)                                                             | **Resolved: (a) weekly, 12 columns** |
 
 ---
 
@@ -60,6 +61,7 @@ Datasets:
 ### 1.1 Understand the Existing Splits
 
 The dataset already provides clean train/test splits:
+
 - `stfore_train.csv` (96,166 rows) — training store-product pairs, SS17/SS18 seasons
 - `stfore_test.csv` (10,684 rows) — test store-product pairs, primarily SS19
 - Both have columns: `external_code`, `retail`, `season`, `category`, `color`, `fabric`, `image_path`, `release_date`, `restock`, `0`–`11` (normalized weekly sales, float)
@@ -158,6 +160,7 @@ A single masking scheme covers all evaluation settings. The `cond_mask` reveals 
 **Training:** randomly sample `n_obs ∈ {0, 1, 2, 3, 4}` per batch item. This trains a single model that handles all settings. The model learns to rely on attributes+references when n_obs=0 and on history+attributes+references when n_obs>0.
 
 **Evaluation:** fix `n_obs` via `--n_obs` CLI argument. The same checkpoint is used for all benchmarks:
+
 - `--n_obs 0` → pure cold-start results
 - `--n_obs 2` → 2-week few-shot results (standard Visuelle2 benchmark)
 - `--n_obs 4` → 4-week few-shot results
@@ -221,6 +224,7 @@ H&M articles have richer metadata (25 columns) and images.
 ### 2.3 Build Retrieval Database for H&M
 
 Same FAISS workflow as Visuelle 2.0 (§1.5), applied to H&M:
+
 - [ ] Build FAISS index over train article embeddings.
 - [ ] For each article in train/val/test, retrieve top-k=3 nearest training articles.
 - [ ] Construct reference tensors `(K=1, 3*12)` from retrieved trajectories.
@@ -242,7 +246,6 @@ Create `Cold-Start.../dataset_hnm.py` with the same interface as `Dataset_Visuel
 **Resolved:** Both injection paths are active in the same model. They are complementary, not mutually exclusive:
 
 - **(a) `side_info` extension** — project `product_emb (B, d)` → `(B, attr_emb_dim)` → expand to `(B, attr_emb_dim, K, L)` → concatenate into `side_info`. This conditions **every residual block at every timestep**. `side_dim` in config is updated to include `attr_emb_dim`.
-
 - **(b) RMA attribute input** — modify `ReferenceModulatedCrossAttention` to accept `attr_embedding` as an additional Key/Value source alongside retrieved references. The attention becomes: attend over `[noisy_state, reference_trajectories, product_attributes]`. This conditions **how references are weighted and blended** — critical when no sales history is available.
 
 **Why both?** When `n_obs=0` (pure cold-start), there is no history signal; the model relies entirely on attributes + references. Having attributes in both the residual stream (a) and the reference fusion (b) gives the model two complementary pathways to use attribute information. When `n_obs>0`, history is available through `cond_mask` and attributes provide supplementary context through both paths.
@@ -267,6 +270,7 @@ class RATD_Fashion(RATD_base):
 ```
 
 **Methods to implement:**
+
 - [ ] **3.2.1** `process_data(batch)` — Converts Dataset dict to model tensors. Handles `product_emb` field (absent in base class). Returns 8-tuple including `product_emb`.
 - [ ] **3.2.2** `get_side_info(observed_tp, cond_mask, product_emb)` — Override to include attribute embedding. Project `product_emb` via `nn.Linear(d_attr, emb_attr_dim)`. Expand across L dimension: `(B, emb_attr_dim, 1, 1)` → `(B, emb_attr_dim, K, L)`. Concatenate with standard time + feature embeddings.
 - [ ] **3.2.3** `get_nobs_mask(n_obs)` — Returns `cond_mask` with first `n_obs` columns = 1, rest = 0. Used in Task A evaluation.
@@ -288,6 +292,7 @@ class RATD_Fashion(RATD_base):
 Create new YAML configs under `Cold-Start.../config/`:
 
 - [ ] **`visuelle2_few_shot.yaml`** — Task A on Visuelle 2.0
+
   ```yaml
   train:
     epochs: 100
@@ -319,7 +324,6 @@ Create new YAML configs under `Cold-Start.../config/`:
     use_reference: True
     k_references: 3      # resolved: k=3; ablate k=1 and k=5 separately
   ```
-
 - [ ] **`visuelle2_cold_start.yaml`** — Task B on Visuelle 2.0 (n_obs=0)
 - [ ] **`hnm_few_shot.yaml`** — Task A on H&M
 - [ ] **`hnm_cold_start.yaml`** — Task B on H&M
@@ -327,6 +331,7 @@ Create new YAML configs under `Cold-Start.../config/`:
 ### 3.5 Update Experiment Entrypoint
 
 Create `Cold-Start.../exe_fashion.py` (modeled on `exe_forecasting.py`):
+
 - [ ] Remove hardcoded server paths (all paths should be config-driven or relative).
 - [ ] Add `--dataset` argument (`visuelle2` or `hnm`).
 - [ ] Add `--n_obs` argument for evaluation (fixed observation weeks; default 2 for Visuelle2).
@@ -344,6 +349,7 @@ Create `Cold-Start.../exe_fashion.py` (modeled on `exe_forecasting.py`):
 ### 4.1 Embedding Computation Script
 
 Create `scripts/compute_embeddings.py`:
+
 - [ ] Accept `--dataset` and `--encoder` (clip/resnet) arguments.
 - [ ] Load images + metadata for all products.
 - [ ] Run encoder in batches (batch_size=64) to extract embeddings.
@@ -354,6 +360,7 @@ Create `scripts/compute_embeddings.py`:
 ### 4.2 FAISS Index + Retrieval Script
 
 Create `scripts/compute_retrieval.py`:
+
 - [ ] Load train product embeddings.
 - [ ] Build `faiss.IndexFlatIP` (cosine similarity via L2-normalized dot product).
   - For H&M (33K+ products), consider `faiss.IndexHNSWFlat` for faster approximate search.
@@ -399,13 +406,13 @@ Create `scripts/compute_retrieval.py`:
 
 All metrics computed on the held-out prediction weeks (not the observed weeks):
 
-| Metric | Formula | Notes |
-|---|---|---|
-| **MAE** | Mean Absolute Error | Primary point forecast metric |
-| **RMSE** | Root Mean Squared Error | Penalizes large errors |
-| **WAPE** | `sum(|y-ŷ|) / sum(|y|)` × 100% | Standard retail forecasting metric — report this |
-| **CRPS** | Continuous Ranked Probability Score | Probabilistic forecast quality |
-| **CRPS_sum** | Sum-then-CRPS | Store-aggregated probabilistic metric |
+| Metric             | Formula                             | Notes                                 |
+| ------------------ | ----------------------------------- | ------------------------------------- |
+| **MAE**      | Mean Absolute Error                 | Primary point forecast metric         |
+| **RMSE**     | Root Mean Squared Error             | Penalizes large errors                |
+| **WAPE**     | `sum(                               | y-ŷ                                  |
+| **CRPS**     | Continuous Ranked Probability Score | Probabilistic forecast quality        |
+| **CRPS_sum** | Sum-then-CRPS                       | Store-aggregated probabilistic metric |
 
 Implement WAPE in `utils.py` alongside existing `calc_quantile_CRPS`.
 
@@ -422,14 +429,56 @@ Implement WAPE in `utils.py` alongside existing `calc_quantile_CRPS`.
 
 ### 6.4 Baselines
 
-| Baseline | Description |
-|---|---|
-| **Naive Mean** | Predict the mean training trajectory |
-| **Seasonal Naive** | Use retrieved neighbor's trajectory directly as prediction |
-| **CSDI (no retrieval)** | RATD with `use_reference=False` — isolates retrieval contribution |
-| **RATD original** | TCN-based retrieval adapted to Visuelle2 if feasible |
-| **Ours — Task A** | Attribute-retrieval diffusion, n_obs=2 |
-| **Ours — Task B** | Attribute-retrieval diffusion, n_obs=0 |
+Baselines are structured in four tiers by complexity. All are evaluated on the **same test split** and the **same n_obs settings** as RATD_Fashion for a fair comparison. Implementation targets Visuelle 2.0 first; H&M follows with the same code.
+
+#### Tier 0: Attribute-Only Non-Parametric Baselines (n_obs = 0)
+
+These require no training and establish a sanity-check floor.
+
+| Baseline | Description | n_obs |
+| -------- | ----------- | ----- |
+| **Global Mean** | Predict the per-channel mean sales trajectory across all training products. No product-specific information used. | 0 |
+| **K-NN Mean (k=3)** | Retrieve the 3 most similar training products (same FAISS index used by RATD), average their trajectories. Product-specific but no learning. | 0 |
+
+#### Tier 1: RNN-LSTM Few-Shot Baselines (n_obs = 1,2,3,4)
+
+A seq2seq LSTM conditioned on observed sales history + product embedding. Tests whether a simpler recurrent model can match diffusion performance when sales history is available. Only valid for n_obs >= 1 (no pure cold-start mode).
+
+| Baseline | Description | n_obs |
+| -------- | ----------- | ----- |
+| **LSTM-NoAttr** | Encoder LSTM on observed sales only; decoder predicts remaining weeks. No product attributes. | 1,2,3,4 |
+| **LSTM-Attr** | Same LSTM but encoder input is concatenated with product embedding (513-dim). Shows attribute value in recurrent setting. | 1,2,3,4 |
+
+#### Tier 2: Time Series Foundation Model — Chronos Zero-Shot (n_obs = 1,2,3,4)
+
+Chronos (Amazon, 2024) is a T5-based probabilistic time series model pre-trained on a large corpus of time series. Used zero-shot with no fine-tuning. Only the sales channel is passed (univariate); discount channel is dropped for this baseline. Only valid for n_obs >= 1 since Chronos requires at least one context observation.
+
+| Baseline | Description | n_obs |
+| -------- | ----------- | ----- |
+| **Chronos-Mini** | `amazon/chronos-t5-mini` (21M params), zero-shot, sales channel only | 1,2,3,4 |
+
+#### Tier 3: RATD_Fashion — Our Model
+
+The main model is also evaluated across all n_obs settings to show the cold-start vs. few-shot progression.
+
+| Setting | Description | n_obs |
+| ------- | ----------- | ----- |
+| **RATD (cold-start)** | No sales history; attributes + references only | 0 |
+| **RATD (1-week)** | 1 week of sales + attributes + references | 1 |
+| **RATD (2-week)** | 2 weeks (standard Visuelle2 benchmark point) | 2 |
+| **RATD (3-week)** | 3 weeks | 3 |
+| **RATD (4-week)** | 4 weeks | 4 |
+
+#### Full Comparison Matrix
+
+| Model | n_obs=0 | n_obs=1 | n_obs=2 | n_obs=3 | n_obs=4 |
+| ----- | ------- | ------- | ------- | ------- | ------- |
+| Global Mean | yes | - | - | - | - |
+| K-NN Mean | yes | - | - | - | - |
+| LSTM-NoAttr | - | yes | yes | yes | yes |
+| LSTM-Attr | - | yes | yes | yes | yes |
+| Chronos-Mini | - | yes | yes | yes | yes |
+| RATD_Fashion (ours) | yes | yes | yes | yes | yes |
 
 ### 6.5 Evaluation Script Updates
 
@@ -447,14 +496,14 @@ Implement WAPE in `utils.py` alongside existing `calc_quantile_CRPS`.
 
 ### 7.1 Ablation Studies
 
-| Ablation | What it tests |
-|---|---|
-| No retrieval (`use_reference=False`) | Value of retrieved references |
-| Random retrieval (random neighbors instead of FAISS) | Importance of meaningful retrieval |
-| Image only (no text tags in embedding) | Contribution of text attributes |
-| Tags only (no image embedding) | Contribution of visual features |
-| k=1 vs k=3 vs k=5 references | Sensitivity to number of references |
-| n_obs=0 vs 1 vs 2 vs 4 | Impact of early sales observations |
+| Ablation                                             | What it tests                       |
+| ---------------------------------------------------- | ----------------------------------- |
+| No retrieval (`use_reference=False`)               | Value of retrieved references       |
+| Random retrieval (random neighbors instead of FAISS) | Importance of meaningful retrieval  |
+| Image only (no text tags in embedding)               | Contribution of text attributes     |
+| Tags only (no image embedding)                       | Contribution of visual features     |
+| k=1 vs k=3 vs k=5 references                         | Sensitivity to number of references |
+| n_obs=0 vs 1 vs 2 vs 4                               | Impact of early sales observations  |
 
 ### 7.2 Qualitative Analysis
 
@@ -465,6 +514,150 @@ Implement WAPE in `utils.py` alongside existing `calc_quantile_CRPS`.
 ### 7.3 Cross-Dataset Generalization (Stretch Goal)
 
 - [ ] Train on H&M, evaluate on Visuelle 2.0 (zero-shot transfer). Tests whether learned representations generalize across retailers.
+
+---
+
+## Phase 8: Baselines Implementation
+
+**Goal:** Implement and benchmark all Tier 0/1/2 baselines against RATD_Fashion. Visuelle 2.0 first; H&M follows with the same scripts parameterized by `--dataset`.
+
+### 8.1 Tier 0: Global Mean and K-NN Mean
+
+Create `baselines/run_knn_mean.py`. No PyTorch model, no training loop needed.
+
+**Algorithm:**
+1. Load `visuelle2_processed/product_embeddings.pt`, train references, train sales tensors.
+2. For Global Mean: compute per-channel mean over all training products → `(K, 12)`. Broadcast to all test products.
+3. For K-NN Mean: for each test product, load its precomputed `k=3` reference tensors (already in `test_references.pt`) and average them → `(K, 12)`.
+4. Compute RMSE, MAE, WAPE, CRPS (degenerate: samples = single prediction repeated `nsample` times for CRPS compatibility).
+
+**CLI:**
+```bash
+python baselines/run_knn_mean.py \
+    --dataset visuelle2 \
+    --processed_dir visuelle2_processed/ \
+    --nsample 1
+```
+
+**Deliverable:** `baselines/run_knn_mean.py`, results saved to `results/baselines/knn_mean_{dataset}.json`.
+
+### 8.2 Tier 1: LSTM Baselines
+
+Create `baselines/lstm_baseline.py`. Single file containing both model definition and training/evaluation loop.
+
+**Architecture:**
+
+```
+Input per timestep: sales[t] (+ optionally discount[t])      shape: (B, K)
+Product embedding (LSTM-Attr only): concat to encoder input  shape: (B, K + attr_proj_dim)
+
+Encoder LSTM: 2-layer unidirectional, hidden_dim=128
+  - Input:  (B, n_obs, K) or (B, n_obs, K + attr_proj_dim)
+  - Output: final hidden state h (B, 128)
+
+Decoder: linear  h → (B, (L - n_obs) * K)
+  - Reshape to (B, K, L - n_obs)
+  - This is a direct regression decoder (no autoregressive loop needed for fixed L=12)
+```
+
+For LSTM-Attr: project `product_emb (B, 513)` → `(B, 32)` via `nn.Linear(513, 32)`, then concatenate to each encoder input step before feeding the LSTM.
+
+**Training:**
+- Fix `n_obs` at train time (train a separate checkpoint per n_obs value: 1, 2, 3, 4).
+- Loss: MSE on normalised sales for the `(L - n_obs)` predicted steps.
+- 50 epochs, Adam, lr=1e-3, batch_size=64.
+- Validate on val split (same split strategy as RATD).
+
+**CLI:**
+```bash
+# Train
+python baselines/lstm_baseline.py \
+    --dataset visuelle2 \
+    --processed_dir visuelle2_processed/ \
+    --n_obs 2 \
+    --use_attr \
+    --mode train \
+    --save baselines/save/lstm_attr_n2/
+
+# Evaluate
+python baselines/lstm_baseline.py \
+    --dataset visuelle2 \
+    --modelfolder baselines/save/lstm_attr_n2/ \
+    --n_obs 2 \
+    --use_attr \
+    --mode eval
+```
+
+**Deliverable:** `baselines/lstm_baseline.py`, checkpoints under `baselines/save/lstm_{attr|noattr}_n{1,2,3,4}/`.
+
+### 8.3 Tier 2: Chronos Zero-Shot
+
+Create `baselines/run_chronos.py`.
+
+**Dependencies:**
+```
+pip install chronos-forecasting
+```
+
+**Usage pattern:**
+```python
+from chronos import ChronosPipeline
+pipeline = ChronosPipeline.from_pretrained(
+    "amazon/chronos-t5-mini",
+    device_map="cuda",
+    torch_dtype=torch.bfloat16,
+)
+```
+
+**Evaluation loop:**
+1. For each test product with `n_obs` observed weeks, extract context = sales channel, weeks `[0 : n_obs]` as a 1-D tensor.
+2. Call `pipeline.predict(context, prediction_length=(12 - n_obs), num_samples=50)`.
+3. Collect 50 sample trajectories → shape `(50, 12 - n_obs)`.
+4. Compute median forecast for point metrics (RMSE, MAE, WAPE).
+5. Compute CRPS directly from the 50-sample quantile distribution.
+
+**Notes:**
+- Chronos is **univariate only**: pass sales channel, drop discount. Note this in the results table.
+- Context must be provided as a CPU tensor or list. Move to CPU before passing.
+- Run in `torch.no_grad()` + `torch.inference_mode()` for speed.
+- Batch size: use `pipeline.predict` with a list of contexts for throughput.
+
+**CLI:**
+```bash
+python baselines/run_chronos.py \
+    --dataset visuelle2 \
+    --processed_dir visuelle2_processed/ \
+    --n_obs 2 \
+    --nsample 50 \
+    --output results/baselines/chronos_n2_visuelle2.json
+```
+
+**Deliverable:** `baselines/run_chronos.py`, result JSONs under `results/baselines/`.
+
+### 8.4 Results Aggregation Script
+
+Create `baselines/aggregate_results.py`:
+- Reads all `results/baselines/*.json` and `save/*/metrics_sweep.json`.
+- Produces a single Markdown/CSV comparison table.
+- Columns: Model, n_obs, RMSE, MAE, WAPE%, CRPS, CRPS_sum.
+- Rows sorted by n_obs then model tier.
+
+```bash
+python baselines/aggregate_results.py \
+    --ratd_folder save/vis2_run_20260414_120000 \
+    --output results/comparison_table.md
+```
+
+### 8.5 Implementation Order
+
+```
+8.1 (K-NN Mean) → 8.4 partial (can aggregate Tier 0 immediately)
+8.2 (LSTM)      → train n_obs=1,2,3,4 runs sequentially
+8.3 (Chronos)   → run after LSTM (GPU contention)
+8.4 (aggregate) → run after all baselines complete
+```
+
+All four scripts share the same processed data files; no additional preprocessing is needed beyond Phases 1 and 2.
 
 ---
 
@@ -482,6 +675,12 @@ Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/
 │   ├── preprocess_hnm.py               (NEW — Phase 2)
 │   ├── compute_embeddings.py           (NEW — Phase 4)
 │   └── compute_retrieval.py            (NEW — Phase 4)
+├── baselines/
+│   ├── run_knn_mean.py                  (NEW — Phase 8.1)
+│   ├── lstm_baseline.py                 (NEW — Phase 8.2)
+│   ├── run_chronos.py                   (NEW — Phase 8.3)
+│   ├── aggregate_results.py             (NEW — Phase 8.4)
+│   └── save/                            (LSTM checkpoints, auto-created)
 ├── dataset_forecasting.py              (existing — keep as-is)
 ├── dataset_visuelle2.py                (NEW — Phase 1)
 ├── dataset_hnm.py                      (NEW — Phase 2)
@@ -493,6 +692,14 @@ Cold-Start-Demand-Forecasting-Using-Retrieval-Augmented-Diffusion-Models/
 ├── utils.py                            (MODIFY — Phase 6, add WAPE)
 ├── requirements.txt                    (existing)
 └── requirements_cold_start.txt         (NEW — Phase 0)
+
+results/
+├── baselines/
+│   ├── knn_mean_visuelle2.json          (Phase 8.1 output)
+│   ├── knn_mean_hnm.json
+│   ├── chronos_n{1,2,3,4}_visuelle2.json (Phase 8.3 output)
+│   └── chronos_n{1,2,3,4}_hnm.json
+└── comparison_table.md                  (Phase 8.4 output)
 
 visuelle2_processed/                    (generated by Phase 1+4 scripts)
 ├── product_embeddings.pt
@@ -522,9 +729,16 @@ hnm_processed/                          (generated by Phase 2+4 scripts)
 Phase 0 → Phase 1 → Phase 2 → Phase 4 → Phase 3 → Phase 5 → Phase 6 → Phase 7
 Setup     Vis2      H&M       Retrieval  Model      Training  Eval      Analysis
           data      data      scripts    code
+
+                                         Phase 8 (Baselines) runs in parallel with
+                                         Phases 5-6; only needs processed data (Phases 1+4).
 ```
 
 Phases 1 and 2 can overlap. Phase 4 depends on Phases 1 and 2. Phases 3 and 4 can overlap — retrieval scripts can be precomputed while the model code is being written.
+
+Phase 8 dependency: only needs `visuelle2_processed/` (from Phases 1+4). Can start as soon as preprocessing is done, independently of model training.
+
+**Baseline implementation order within Phase 8:** 8.1 (K-NN Mean, no GPU needed, 10 min) → 8.2 LSTM training (GPU, ~2 hrs for 4 n_obs variants) → 8.3 Chronos inference (GPU, ~1 hr) → 8.4 aggregate. For H&M, repeat 8.1–8.3 after `hnm_processed/` is ready.
 
 ---
 

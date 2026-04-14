@@ -1,15 +1,17 @@
 
-# Visuelle 2.0 cold-start / few-shot configuration for RATD_Fashion.
+# H&M cold-start / few-shot configuration for RATD_HnM.
 #
 # Key dimensions:
-#   pred_len  = 12  (full 12-week fashion season)
-#   K         =  2  (channels: sales + discount)
-#   k_refs    =  3  (retrieved reference trajectories per product)
+#   pred_len  = 12  (12 bi-weekly periods after launch)
+#   K         =  1  (channel: sales only)
+#   k_refs    =  3  (retrieved reference trajectories per article)
 #   ref_size  = 12  (single reference trajectory length = pred_len)
 #   h_size    =  0  (no separate history window; gt_mask controls conditioning)
-#   n_obs     = 0-4 (weeks of sales history observed at inference)
 #
 # ref_size * 3 = 36 = total reference tensor length per sample.
+#
+# Sales are log1p-transformed then StandardScaled; scaler.pkl must exist
+# in hnm_processed/ before training.
 
 train:
   epochs: 100
@@ -27,14 +29,13 @@ diffusion:
   num_steps: 50
   schedule: "quad"
   is_linear: False
-  # Sequence-length parameters (set to match Visuelle 2 season length)
-  h_size: 0       # observed history length (masking handles n_obs variation)
+  h_size: 0       # observed history controlled by gt_mask
   ref_size: 12    # single reference trajectory length (= pred_len)
 
 model:
   is_unconditional: 0
   timeemb: 128
   featureemb: 16
-  target_strategy: "test"   # not used by RATD_Fashion but required by RATD_base
+  target_strategy: "test"   # required by RATD_base; not used by RATD_HnM
   use_reference: True
-  # Product attributes are injected via RMA cross-attention (path b) only.
+  attr_dim: 513             # CLIP text (512) + price scalar (1)

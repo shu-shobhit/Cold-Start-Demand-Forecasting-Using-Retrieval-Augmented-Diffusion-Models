@@ -75,17 +75,21 @@ def parse_args():
     p.add_argument("--modelfolder",   type=str, default="",
                    help="If non-empty, skip training and load model.pth "
                         "from this folder")
-    p.add_argument("--num_workers",   type=int, default=4)
-    p.add_argument("--save_every",    type=int, default=10,
+    p.add_argument("--num_workers",   type=int, default=0)
+    p.add_argument("--save_every",    type=int, default=1,
                    help="Save an intermediate checkpoint every N epochs "
                         "(0 = only save the final model and best model)")
-    p.add_argument("--val_interval",  type=int, default=10,
+    p.add_argument("--val_interval",  type=int, default=1,
                    help="Run validation every N epochs during training "
                         "(uses test set for best-model selection)")
     p.add_argument("--resume",        type=str, default="",
                    help="Resume training: path to a checkpoint_*.pth file, "
                         "or a run folder (auto-selects checkpoint_latest.pth "
                         "or the highest-epoch checkpoint found there)")
+    p.add_argument("--lr",           type=float, default=None,
+                   help="Override the learning rate from the config YAML. "
+                        "Useful when resuming after a loss spike to restart "
+                        "with a smaller LR (e.g. --lr 3e-4).")
     p.add_argument("--sweep",         action="store_true",
                    help="Evaluate at n_obs ∈ {0,1,2,3,4} and print "
                         "a comparison table")
@@ -394,6 +398,10 @@ def main():
     config_path = os.path.join(repo_root, args.config)
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+
+    if args.lr is not None:
+        config["train"]["lr"] = args.lr
+        print(f"LR overridden to {args.lr:.2e} via --lr flag")
 
     print(json.dumps(config, indent=4))
 

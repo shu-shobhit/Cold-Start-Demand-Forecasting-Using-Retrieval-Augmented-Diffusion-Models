@@ -206,7 +206,8 @@ def get_torch_trans(heads=8, layers=1, channels=64):
     """
 
     encoder_layer = nn.TransformerEncoderLayer(
-        d_model=channels, nhead=heads, dim_feedforward=64, activation="gelu"
+        d_model=channels, nhead=heads, dim_feedforward=64, activation="gelu",
+        batch_first=True,
     )
     return nn.TransformerEncoder(encoder_layer, num_layers=layers)
 
@@ -516,10 +517,7 @@ class ResidualBlock(nn.Module):
         # processed independently across time.
         y = y.reshape(B, channel, K, L).permute(0, 2, 1, 3).reshape(B * K, channel, L)
 
-        if self.is_linear:
-            y = self.time_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
-        else:
-            y = self.time_layer(y.permute(2, 0, 1)).permute(1, 2, 0)
+        y = self.time_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
         y = y.reshape(B, K, channel, L).permute(0, 2, 1, 3).reshape(B, channel, K * L)
         return y
     def forward_feature(self, y, base_shape):
@@ -540,10 +538,7 @@ class ResidualBlock(nn.Module):
         # Rearrange to ``(B * L, K, C)`` so the transformer can connect
         # variables observed at the same timestep.
         y = y.reshape(B, channel, K, L).permute(0, 3, 1, 2).reshape(B * L, channel, K)
-        if self.is_linear:
-            y = self.feature_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
-        else:
-            y = self.feature_layer(y.permute(2, 0, 1)).permute(1, 2, 0)
+        y = self.feature_layer(y.permute(0, 2, 1)).permute(0, 2, 1)
         y = y.reshape(B, L, channel, K).permute(0, 2, 3, 1).reshape(B, channel, K * L)
         return y
     

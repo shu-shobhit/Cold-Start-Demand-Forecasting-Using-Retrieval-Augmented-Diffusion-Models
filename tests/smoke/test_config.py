@@ -9,7 +9,7 @@ Tests:
   - RATD_Fashion can be built directly from visuelle2.yaml without any
     additional key injection (h_size, ref_size already in diffusion block).
   - config values have expected types and ranges (e.g. num_steps > 0,
-    batch_size > 0, attr_emb_dim > 0).
+    batch_size > 0).
 
 Expected outcome: all assertions pass, PASS printed at the end.
 """
@@ -107,15 +107,14 @@ def test_visuelle2_required_model_keys():
     cfg = _load("visuelle2.yaml")
     m = cfg["model"]
     required = ("is_unconditional", "timeemb", "featureemb",
-                "target_strategy", "use_reference", "attr_emb_dim")
+                "target_strategy", "use_reference")
     for key in required:
         check(key in m, f"model.{key} missing")
 
     check(m["is_unconditional"] in (0, 1, True, False),
           f"is_unconditional invalid: {m['is_unconditional']}")
-    check(m["timeemb"] > 0,     f"timeemb={m['timeemb']} must be > 0")
-    check(m["featureemb"] > 0,  f"featureemb={m['featureemb']} must be > 0")
-    check(m["attr_emb_dim"] > 0, f"attr_emb_dim={m['attr_emb_dim']} must be > 0")
+    check(m["timeemb"] > 0,    f"timeemb={m['timeemb']} must be > 0")
+    check(m["featureemb"] > 0, f"featureemb={m['featureemb']} must be > 0")
     check(m["use_reference"] in (True, False, 0, 1),
           f"use_reference invalid: {m['use_reference']}")
     print(f"  model block OK  PASS")
