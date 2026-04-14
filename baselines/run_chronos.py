@@ -228,8 +228,14 @@ def _run_chronos_predict(
             batch_ctx = torch.stack(contexts_01[start:end], dim=0)  # (B, n_obs)
 
             # forecast shape: (B, nsample, pred_len) -- values in [0,1] range
+            # forecast_01 = pipeline.predict(
+            #     context=batch_ctx,
+            #     prediction_length=pred_len,
+            #     num_samples=nsample,
+            #     limit_prediction_length=False,
+            # )
             forecast_01 = pipeline.predict(
-                context=batch_ctx,
+                batch_ctx,
                 prediction_length=pred_len,
                 num_samples=nsample,
                 limit_prediction_length=False,
