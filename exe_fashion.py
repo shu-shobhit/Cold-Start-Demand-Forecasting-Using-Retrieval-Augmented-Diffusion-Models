@@ -80,9 +80,11 @@ def parse_args():
     p.add_argument("--save_every",    type=int, default=1,
                    help="Save an intermediate checkpoint every N epochs "
                         "(0 = only save the final model and best model)")
-    p.add_argument("--val_interval",  type=int, default=1,
+    p.add_argument("--val_interval",  type=int, default=5,
                    help="Run validation every N epochs during training "
-                        "(uses test set for best-model selection)")
+                        "(uses test set for best-model selection; default 5 "
+                        "because validation averages over all 50 diffusion "
+                        "timesteps and is ~50x more expensive than one training epoch)")
     p.add_argument("--resume",        type=str, default="",
                    help="Resume training: path to a checkpoint_*.pth file, "
                         "or a run folder (auto-selects checkpoint_latest.pth "
@@ -164,9 +166,9 @@ def evaluate_fashion(
     """Evaluate RATD_Fashion on the Visuelle 2.0 test split.
 
     Metrics are computed on the **sales channel only** (channel index 0).
-    Both RMSE / MAE (in the scaler-normalised space) and WAPE / CRPS /
-    CRPS_sum (properly de-normalised via ``scaler`` and ``mean_scaler``) are
-    reported.
+    RMSE and MAE are in the StandardScaler-normalised space (directly comparable
+    to the Visuelle 2.0 baseline table). WAPE, CRPS, and CRPS_sum are
+    de-normalised via ``scaler`` and ``mean_scaler``.
 
     Args:
         model:       Trained RATD_Fashion model.
@@ -252,8 +254,8 @@ def evaluate_fashion(
     evalpt_sales  = all_evalpt[..., 0].unsqueeze(-1)    # (N, L, 1)
     samples_sales = all_samples[..., 0].unsqueeze(-1)   # (N, nsample, L, 1)
 
-    rmse = np.sqrt(mse_total / max(evalpts_total, 1))
-    mae  = mae_total / max(evalpts_total, 1)
+    rmse = float(np.sqrt(mse_total / max(evalpts_total, 1)))
+    mae  = float(mae_total / max(evalpts_total, 1))
     wape = calc_wape(
         target_sales,
         samples_sales.median(dim=1).values,
@@ -500,6 +502,7 @@ def main():
             foldername=foldername,
             save_every=args.save_every,
             resume_checkpoint=resume_ckpt,      # None = fresh run
+            lr_override=args.lr,                # None = keep scheduler-restored LR
         )
     else:
         # Prefer model_best.pth (lowest val loss) over model.pth (last epoch)

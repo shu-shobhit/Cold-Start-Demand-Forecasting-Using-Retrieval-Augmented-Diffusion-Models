@@ -82,6 +82,7 @@ def train(
     foldername="",
     save_every=10,
     resume_checkpoint=None,
+    lr_override=None,
 ):
     """Train the forecasting model, validate periodically, and save checkpoints.
 
@@ -93,8 +94,10 @@ def train(
       - ``model_best.pth`` — model weights only, saved whenever val loss improves.
       - ``model.pth``      — model weights only, saved at the end of training.
 
-    Validation uses ``is_train=1`` (random diffusion timestep per batch) so it
-    runs at the same speed as one training epoch.
+    Validation uses ``is_train=0``, which routes to ``calc_loss_valid`` and
+    averages the loss over all 50 diffusion timesteps for a deterministic
+    ELBO estimate. This is ~50x more expensive than one training epoch, so
+    ``valid_epoch_interval`` should be set to 5 or higher.
 
     Args:
         model:                RATD forecasting model to optimize.
@@ -138,15 +141,24 @@ def train(
         lr_scheduler.load_state_dict(ckpt["scheduler_state"])
         start_epoch     = ckpt["epoch"] + 1
         best_valid_loss = ckpt.get("best_valid_loss", float("inf"))
-        # Override LR in all param groups (allows --lr flag to take effect even
-        # when resuming, since optimizer.load_state_dict restores the old LR).
-        for pg in optimizer.param_groups:
-            pg["lr"] = config["lr"]
-        console.log(
-            f"[green]Resumed[/] from epoch {ckpt['epoch']}  "
-            f"(best_val={best_valid_loss:.6f})  continuing from epoch {start_epoch}  "
-            f"lr={config['lr']:.2e}"
-        )
+        # Only override LR when --lr was explicitly passed by the caller.
+        # Without this guard a plain --resume would clobber the scheduler-reduced
+        # LR (e.g. 1e-4 after epoch 75) back to the YAML default (1e-3).
+        if lr_override is not None:
+            for pg in optimizer.param_groups:
+                pg["lr"] = lr_override
+            console.log(
+                f"[green]Resumed[/] from epoch {ckpt['epoch']}  "
+                f"(best_val={best_valid_loss:.6f})  continuing from epoch {start_epoch}  "
+                f"lr=[yellow]{lr_override:.2e}[/] (overridden via --lr)"
+            )
+        else:
+            restored_lr = optimizer.param_groups[0]["lr"]
+            console.log(
+                f"[green]Resumed[/] from epoch {ckpt['epoch']}  "
+                f"(best_val={best_valid_loss:.6f})  continuing from epoch {start_epoch}  "
+                f"lr=[dim]{restored_lr:.2e}[/] (restored from checkpoint)"
+            )
 
     total_epochs   = config["epochs"]
     itr_per_epoch  = int(config["itr_per_epoch"])
