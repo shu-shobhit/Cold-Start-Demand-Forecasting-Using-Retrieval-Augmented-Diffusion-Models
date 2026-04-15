@@ -208,23 +208,13 @@ def _plot_sample(
     chronos_median = np.median(chronos_full, axis=0)   # (12,)
     ratd_median    = np.median(ratd_full,    axis=0)   # (12,)
 
-    # Individual Chronos draws (faint)
-    for s in chronos_full:
-        ax.plot(WEEKS, s, color=COLOR_CHRONOS_SHADE, alpha=0.3,
-                linewidth=0.8, zorder=1)
-
-    # Individual RATD draws (faint)
-    for s in ratd_full:
-        ax.plot(WEEKS, s, color=COLOR_RATD_SHADE, alpha=0.3,
-                linewidth=0.8, zorder=2)
-
     # Chronos median
     ax.plot(WEEKS, chronos_median, color=COLOR_CHRONOS, linewidth=1.6,
-            linestyle="--", label="Chronos (median)", zorder=4)
+            linestyle="--", label="Chronos (median)", zorder=3)
 
     # Cold-RATD median
     ax.plot(WEEKS, ratd_median, color=COLOR_RATD, linewidth=1.8,
-            label="Cold-RATD (median)", zorder=5)
+            label="Cold-RATD (median)", zorder=4)
 
     # Ground truth (on top)
     ax.plot(WEEKS, gt, color=COLOR_GT, linewidth=1.8,
