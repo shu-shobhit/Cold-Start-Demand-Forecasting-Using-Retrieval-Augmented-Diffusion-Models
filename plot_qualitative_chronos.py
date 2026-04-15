@@ -377,14 +377,17 @@ def main():
             mean_scaler=mean_scaler,
         )                                               # (n_samples, pred_len)
 
-        # Cold-RATD: returns (n_samples, 12) in StandardScaler space
+        # Cold-RATD: returns (n_samples, 12) but the observed positions
+        # (weeks 0..n_obs-1) in the output are noise-contaminated because
+        # impute() never clamps them back to the true values.
+        # Splice GT into those positions for both models before plotting.
         ratd_preds = _run_diffusion(
             model, item, args.n_samples, args.device
         )                                               # (n_samples, 12)
 
-        # Splice observed GT into Chronos samples for clean plotting
+        # Replace observed weeks with GT in both prediction sets
         chronos_full = _build_full_curve(gt_np, chronos_preds, args.n_obs)
-        ratd_full    = ratd_preds          # model already returns 12 weeks
+        ratd_full    = _build_full_curve(gt_np, ratd_preds[:, args.n_obs:], args.n_obs)
 
         data = {
             "idx":          idx,
