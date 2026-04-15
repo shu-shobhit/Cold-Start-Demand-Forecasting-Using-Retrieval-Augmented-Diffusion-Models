@@ -240,7 +240,7 @@ def _plot_sample(
     ax.set_xticks(range(1, 13))
     ax.tick_params(labelsize=7)
     ax.set_xlabel("Week", fontsize=8)
-    ax.set_ylabel("Norm. Sales", fontsize=8)
+    ax.set_ylabel("Sales [0–1]", fontsize=8)
 
 
 def save_single(
@@ -363,31 +363,36 @@ def main():
     for idx in chosen:
         item = test_ds[idx]
 
-        # Ground truth: full 12-week sales (StandardScaler space)
-        gt_np = item["observed_data"][:, 0].numpy()    # (12,)
+        # Ground truth: full 12-week sales (StandardScaler space -> [0,1])
+        gt_scaled = item["observed_data"][:, 0].numpy()          # (12,) StandardScaler
+        gt_np     = test_ds.inverse_transform_sales(gt_scaled)   # (12,) [0,1]
 
-        # Chronos: returns (n_samples, pred_len) in StandardScaler space
-        chronos_preds = _run_chronos(
+        # Chronos: context must be passed in StandardScaler space (the function
+        # handles the inverse-transform internally). Returns StandardScaler space.
+        chronos_preds_scaled = _run_chronos(
             chronos,
-            obs_scaled=gt_np,
+            obs_scaled=gt_scaled,
             n_obs=args.n_obs,
             dataset=test_ds,
             n_samples=args.n_samples,
             scaler_val=scaler_val,
             mean_scaler=mean_scaler,
-        )                                               # (n_samples, pred_len)
+        )                                                          # (n_samples, pred_len)
+        chronos_preds = test_ds.inverse_transform_sales(chronos_preds_scaled)  # [0,1]
 
-        # Cold-RATD: returns (n_samples, 12) but the observed positions
-        # (weeks 0..n_obs-1) in the output are noise-contaminated because
-        # impute() never clamps them back to the true values.
-        # Splice GT into those positions for both models before plotting.
-        ratd_preds = _run_diffusion(
+        # Cold-RATD: returns (n_samples, 12) in StandardScaler space.
+        # Observed positions (weeks 0..n_obs-1) in the output are noise-
+        # contaminated because impute() never clamps them back to ground truth.
+        ratd_preds_scaled = _run_diffusion(
             model, item, args.n_samples, args.device
-        )                                               # (n_samples, 12)
+        )                                                          # (n_samples, 12)
+        ratd_preds = test_ds.inverse_transform_sales(
+            ratd_preds_scaled[:, args.n_obs:]
+        )                                                          # (n_samples, pred_len) [0,1]
 
-        # Replace observed weeks with GT in both prediction sets
+        # Splice GT (already [0,1]) into observed weeks for both models
         chronos_full = _build_full_curve(gt_np, chronos_preds, args.n_obs)
-        ratd_full    = _build_full_curve(gt_np, ratd_preds[:, args.n_obs:], args.n_obs)
+        ratd_full    = _build_full_curve(gt_np, ratd_preds,    args.n_obs)
 
         data = {
             "idx":          idx,
@@ -397,7 +402,7 @@ def main():
         }
 
         print(
-            f"  [{idx:5d}] GT mean={gt_np.mean():.4f}  "
+            f"  [{idx:5d}] GT mean={gt_np.mean():.4f} [0,1]  "
             f"Chronos median mean={np.median(chronos_full, axis=0).mean():.4f}  "
             f"RATD median mean={np.median(ratd_full, axis=0).mean():.4f}"
         )

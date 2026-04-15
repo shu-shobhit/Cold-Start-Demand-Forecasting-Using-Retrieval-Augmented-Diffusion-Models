@@ -147,7 +147,7 @@ def _plot_sample(ax, gt: np.ndarray, knn: np.ndarray,
     ax.set_xticks(range(1, 13))
     ax.tick_params(labelsize=7)
     ax.set_xlabel("Week", fontsize=8)
-    ax.set_ylabel("Norm. Sales", fontsize=8)
+    ax.set_ylabel("Sales [0–1]", fontsize=8)
 
 
 def plot_grid(samples_data: list, n_obs: int, out_path: str,
@@ -265,14 +265,15 @@ def main():
         item = test_ds[idx]
 
         # Ground truth: sales channel (channel 0), shape (12, 2) -> (12,)
-        gt_np = item["observed_data"][:, 0].numpy()   # (12,)
+        gt_np = item["observed_data"][:, 0].numpy()   # (12,) StandardScaler space
+        gt_np = test_ds.inverse_transform_sales(gt_np)  # -> [0,1]
 
-        # K-NN Mean: average of 3 retrieved reference sales trajectories
-        knn_pred = _knn_mean_pred(item["reference"])  # (12,)
+        # K-NN Mean: references are stored in raw [0,1] space, no transform needed
+        knn_pred = _knn_mean_pred(item["reference"])  # (12,) already [0,1]
 
-        # Cold-RATD: run diffusion model
+        # Cold-RATD: run diffusion model, then inverse-transform to [0,1]
         ratd_samples = _run_diffusion(model, item, args.n_samples, args.device)
-        # shape: (n_samples, 12)
+        ratd_samples = test_ds.inverse_transform_sales(ratd_samples)  # (n_samples, 12)
 
         samples_data.append({
             "idx":          idx,
